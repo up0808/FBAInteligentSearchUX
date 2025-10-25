@@ -9,6 +9,11 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@langchain/langgraph": "^0.2.24",
+    "@langchain/langgraph-checkpoint": "^0.0.14",
+    "@langchain/core": "^0.3.28",
+    "@langchain/google-genai": "^0.1.6",
+    "@langchain/community": "^0.3.20",
     "@clerk/nextjs": "^6.7.4",
     "@radix-ui/react-slot": "^1.2.3",
     "class-variance-authority": "^0.7.1",
