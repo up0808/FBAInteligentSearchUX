@@ -7,7 +7,7 @@
     },
     {
       "source": "/(.*)",
-      "has": [{ "type": "host", "value": "search.fbadevishant.qzz.io" }],
+      "has": [{ "type": "host", "value": "chat.search.fbadevishant.qzz.io" }],
       "destination": "/$1"
     }
   ]
