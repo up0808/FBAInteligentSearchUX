@@ -93,7 +93,7 @@ export function useChatStream({ apiKey, currentSessionId, onSessionChange, debug
     abortControllerRef.current = controller;
 
     try {
-      const url = new URL(`/api/chat-stream`, window.location.origin);
+      const url = new URL(`/api/chat`, window.location.origin);
       url.searchParams.append('message', content);
       if (checkpointId) {
         url.searchParams.append('checkpoint_id', checkpointId);
