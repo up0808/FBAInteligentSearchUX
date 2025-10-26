@@ -21,20 +21,17 @@ interface UseChatStreamOptions {
 export function useChatStream({ apiKey, currentSessionId, onSessionChange, debug = false }: UseChatStreamOptions) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [sessions, setSessions] = useState<ChatSession[]>(getChatSessions());
-  const [checkpointId, setCheckpointId] = useState<string | null>(null); // Track checkpoint per session
+  const [checkpointId, setCheckpointId] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Get current session messages
   const currentSession = sessions.find(s => s.id === currentSessionId);
   const messages = currentSession?.messages || [];
 
-  // Auto-scroll to bottom when messages change
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Refresh sessions when localStorage changes
   useEffect(() => {
     const handleStorageChange = () => {
       setSessions(getChatSessions());
@@ -48,17 +45,15 @@ export function useChatStream({ apiKey, currentSessionId, onSessionChange, debug
 
     let sessionId = currentSessionId;
 
-    // Create new session if none exists
     if (!sessionId) {
       const newSession = createNewSession();
       sessionId = newSession.id;
       setSessions(prev => [...prev, newSession]);
       saveChatSessions([...sessions, newSession]);
       onSessionChange(sessionId);
-      setCheckpointId(null); // Reset checkpoint for new session
+      setCheckpointId(null);
     }
 
-    // Add user message
     const userMessage: Message = {
       id: Date.now().toString(),
       content,
@@ -70,7 +65,6 @@ export function useChatStream({ apiKey, currentSessionId, onSessionChange, debug
     addMessageToSession(sessionId, userMessage);
     setSessions(getChatSessions());
 
-    // Create AI message placeholder
     const aiMessageId = (Date.now() + 1).toString();
     const aiMessage: Message = {
       id: aiMessageId,
@@ -91,7 +85,6 @@ export function useChatStream({ apiKey, currentSessionId, onSessionChange, debug
 
     setIsStreaming(true);
 
-    // Abort any existing request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -100,15 +93,14 @@ export function useChatStream({ apiKey, currentSessionId, onSessionChange, debug
     abortControllerRef.current = controller;
 
     try {
-      // Build URL with checkpoint_id query parameter for conversation continuity
-      const url = new URL(`/api/chat`, window.location.origin);
+      const url = new URL(`/api/chat-stream`, window.location.origin);
       url.searchParams.append('message', content);
       if (checkpointId) {
         url.searchParams.append('checkpoint_id', checkpointId);
       }
 
       if (debug) {
-        console.log('Fetching:', url.toString());
+        console.log('[Fetch URL]', url.toString());
       }
 
       const response = await fetch(url.toString(), {
@@ -133,6 +125,7 @@ export function useChatStream({ apiKey, currentSessionId, onSessionChange, debug
         urls: [] as string[]
       };
       let sourcesBuffer: string[] = [];
+      let hasReceivedContent = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -142,106 +135,104 @@ export function useChatStream({ apiKey, currentSessionId, onSessionChange, debug
         const lines = chunk.split('\n').filter(line => line.trim());
 
         for (const line of lines) {
-          // Handle SSE format (lines starting with "data:")
           if (line.startsWith('data:')) {
-            const jsonPart = line.substring(5).trim(); // Remove "data:" prefix
+            const jsonPart = line.substring(5).trim();
             if (!jsonPart) continue;
 
             try {
               const event: any = JSON.parse(jsonPart);
 
               if (debug) {
-                console.log('SSE Event:', event);
+                console.log('[SSE Event]', event);
               }
 
               switch (event.type) {
                 case "checkpoint":
-                  // Save checkpoint_id for conversation continuity
                   const newCheckpointId = event.checkpoint_id;
                   if (newCheckpointId) {
                     setCheckpointId(newCheckpointId);
-                    if (debug) console.log("Checkpoint ID received:", newCheckpointId);
+                    if (debug) console.log("[Checkpoint]", newCheckpointId);
                   }
                   break;
 
                 case "content":
-                  // Handle content from LangGraph streaming
                   const textContent = event.content ?? "";
                   if (textContent.trim()) {
                     contentBuffer += textContent;
+                    hasReceivedContent = true;
+                    
+                    if (debug) console.log("[Content Chunk]", textContent);
                   }
                   break;
 
                 case "search_start":
-                  // Search initiated by the agent
                   searchInfo.stages = [...new Set([...searchInfo.stages, "searching"])];
                   searchInfo.query = event.query || searchInfo.query;
-                  if (debug) console.log("Search started:", searchInfo.query);
+                  
+                  if (debug) console.log("[Search Start]", searchInfo.query);
+                  
+                  // Update immediately to show searching state
+                  updateSessionMessage(sessionId, aiMessageId, {
+                    content: contentBuffer || "Searching...",
+                    sources: sourcesBuffer,
+                    searchInfo: { ...searchInfo }
+                  });
+                  setSessions(getChatSessions());
                   break;
 
                 case "search_results":
-                  // Search results returned from Google Custom Search
                   searchInfo.stages = [...new Set([...searchInfo.stages, "reading"])];
                   searchInfo.urls = event.urls || searchInfo.urls;
                   sourcesBuffer = searchInfo.urls;
-                  if (debug) console.log("Search results:", searchInfo.urls);
+                  
+                  if (debug) console.log("[Search Results]", searchInfo.urls);
+                  
+                  // Update to show found sources
+                  updateSessionMessage(sessionId, aiMessageId, {
+                    content: contentBuffer || "Reading sources...",
+                    sources: sourcesBuffer,
+                    searchInfo: { ...searchInfo }
+                  });
+                  setSessions(getChatSessions());
                   break;
 
                 case "end":
-                  // Stream completed
                   searchInfo.stages = [...new Set([...searchInfo.stages, "writing"])];
-                  if (debug) console.log("Stream ended");
+                  
+                  if (debug) console.log("[Stream End]", { 
+                    hasContent: hasReceivedContent, 
+                    contentLength: contentBuffer.length,
+                    hasSearch: searchInfo.query !== ''
+                  });
+                  
+                  // If we had search but no content, show a message
+                  if (searchInfo.query && !hasReceivedContent) {
+                    contentBuffer = "I searched for information but couldn't generate a response. Please try rephrasing your question.";
+                  }
                   break;
 
                 case "error":
-                  // Error occurred during streaming
-                  console.error("Stream error from server:", event.error);
+                  console.error("[Stream Error]", event.error);
                   throw new Error(event.error || "Unknown streaming error");
 
                 default:
-                  if (debug) console.log("Unknown event type:", event.type);
+                  if (debug) console.log("[Unknown Event]", event.type);
                   break;
               }
 
-              // Update the AI message with current content and search info
-              updateSessionMessage(sessionId, aiMessageId, {
-                content: contentBuffer,
-                sources: sourcesBuffer,
-                searchInfo: { ...searchInfo }
-              });
-              setSessions(getChatSessions());
+              // Update the AI message after each event
+              if (event.type !== "checkpoint" && event.type !== "end") {
+                updateSessionMessage(sessionId, aiMessageId, {
+                  content: contentBuffer || (searchInfo.query ? "Processing..." : ""),
+                  sources: sourcesBuffer,
+                  searchInfo: { ...searchInfo }
+                });
+                setSessions(getChatSessions());
+              }
 
             } catch (parseError) {
-              // If JSON parsing fails, log but don't break the stream
               if (debug) {
-                console.warn("Failed to parse SSE event:", jsonPart, parseError);
-              }
-            }
-          } else {
-            // Handle non-SSE format lines (fallback, shouldn't happen with proper SSE)
-            try {
-              const event: any = JSON.parse(line);
-
-              if (event.type === "content") {
-                const textContent = event.content ?? "";
-                if (textContent.trim()) {
-                  contentBuffer += textContent;
-                }
-              }
-
-              // Update message
-              updateSessionMessage(sessionId, aiMessageId, {
-                content: contentBuffer,
-                sources: sourcesBuffer,
-                searchInfo: { ...searchInfo }
-              });
-              setSessions(getChatSessions());
-
-            } catch {
-              // If not valid JSON, ignore this line
-              // Don't add raw text to content buffer
-              if (debug) {
-                console.log("Non-JSON line ignored:", line);
+                console.warn("[Parse Error]", jsonPart, parseError);
               }
             }
           }
@@ -250,19 +241,21 @@ export function useChatStream({ apiKey, currentSessionId, onSessionChange, debug
 
       // Mark as complete
       updateSessionMessage(sessionId, aiMessageId, {
+        content: contentBuffer || "No response generated.",
+        sources: sourcesBuffer,
+        searchInfo: { ...searchInfo },
         isLoading: false
       });
       setSessions(getChatSessions());
 
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        if (debug) console.log("Request aborted");
-        return; // Request was aborted, don't show error
+        if (debug) console.log("[Request Aborted]");
+        return;
       }
 
-      console.error("Streaming error:", error);
+      console.error("[Streaming Error]", error);
 
-      // Update with error message
       const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
       updateSessionMessage(sessionId, aiMessageId, {
         content: "",
@@ -281,13 +274,12 @@ export function useChatStream({ apiKey, currentSessionId, onSessionChange, debug
     setSessions(prev => [...prev, newSession]);
     saveChatSessions([...sessions, newSession]);
     onSessionChange(newSession.id);
-    setCheckpointId(null); // Reset checkpoint for new chat
+    setCheckpointId(null);
   }, [sessions, onSessionChange]);
 
   const selectSession = useCallback((sessionId: string) => {
     onSessionChange(sessionId);
-    setCheckpointId(null); // Reset checkpoint when switching sessions
-    // TODO: If you want to persist checkpoint per session, store it in the session object
+    setCheckpointId(null);
   }, [onSessionChange]);
 
   return {
