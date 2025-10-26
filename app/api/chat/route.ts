@@ -186,7 +186,7 @@ function createSSEStream(
         }
 
         const config = { configurable: { thread_id: threadId } };
-        const input = { messages: [HumanMessage(message)] };
+        const input = { messages: [new HumanMessage(message)] };
 
         const stream = await graph.streamEvents(input, {
           ...config,
