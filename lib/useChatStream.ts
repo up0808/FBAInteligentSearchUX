@@ -98,7 +98,7 @@ export function useChatStream({ apiKey, currentSessionId, onSessionChange, debug
     abortControllerRef.current = controller;
 
     try {
-      const url = `https://api.aisearch.fbadevishant.qzz.io/chat_stream/${encodeURIComponent(content)}`;
+      const url = `api/chat/${encodeURIComponent(content)}`;
       const response = await fetch(url, {
         method: "GET",
         headers: {
