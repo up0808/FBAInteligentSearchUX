@@ -1,0 +1,14 @@
+{
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "api.search.fbadevishant.qzz.io" }],
+      "destination": "/api/$1"
+    },
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "search.fbadevishant.qzz.io" }],
+      "destination": "/$1"
+    }
+  ]
+}
