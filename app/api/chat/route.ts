@@ -71,8 +71,9 @@ function validateEnvironment(): {
     googleApiKey: googleApiKey!,
     googleCseId: googleCseId!,
     adminApiKey: adminApiKey!,
-  }
-  
+  };
+}
+
 // Authentication Middleware
 
 // Verifies Bearer token authentication
@@ -96,9 +97,9 @@ const memory = new MemorySaver();
 
 
  // Creates and configures the LangGraph workflow
- 
+
 function createGraph(envVars: ReturnType<typeof validateEnvironment>) {
-  
+
   // Initialize LLM with Gemini 2.5 Flash
   const llm = new ChatGoogleGenerativeAI({
     apiKey: envVars.genAiApiKey,
@@ -114,18 +115,18 @@ function createGraph(envVars: ReturnType<typeof validateEnvironment>) {
 
   // Bind tools to the LLM
   const llmWithTools = llm.bindTools([searchTool]);
-  
-  
+
+
    // Model node - invokes the LLM with conversation history
-  
+
   async function modelNode(state: GraphStateType): Promise<Partial<GraphStateType>> {
     const response = await llmWithTools.invoke(state.messages);
     return { messages: [response] };
   }
 
-  
+
    // Tool node - executes tool calls requested by the LLM
-   
+
   async function toolNode(state: GraphStateType): Promise<Partial<GraphStateType>> {
     const lastMessage = state.messages[state.messages.length - 1];
 
@@ -144,7 +145,7 @@ function createGraph(envVars: ReturnType<typeof validateEnvironment>) {
         if (toolName === 'google_custom_search') {
           // Execute the Google Custom Search tool
           const query = toolArgs.query || toolArgs.input || '';
-          
+
           if (!query) {
             toolMessages.push(
               new ToolMessage({
@@ -330,7 +331,7 @@ function createSSEStream(
               try {
                 // Parse search results to extract URLs
                 const results = JSON.parse(output);
-                
+
                 if (Array.isArray(results)) {
                   for (const result of results) {
                     if (result.link) {
@@ -415,7 +416,7 @@ export async function GET(request: NextRequest) {
     }
 
     // 3. Parse Query Parameters
-    
+
     const { searchParams } = new URL(request.url);
     const message = searchParams.get('message');
     const checkpointId = searchParams.get('checkpoint_id') || undefined;
@@ -461,7 +462,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-  
+
     // 1. Environment Validation
     let envVars: ReturnType<typeof validateEnvironment>;
 
@@ -490,8 +491,8 @@ export async function POST(request: NextRequest) {
         }
       );
     }
-    
-    // 3. Parse Request Bod
+
+    // 3. Parse Request Body
     let body: { message: string; checkpoint_id?: string };
 
     try {
@@ -516,13 +517,13 @@ export async function POST(request: NextRequest) {
     }
 
     // 4. Initialize Graph
-    
+
     const graph = createGraph(envVars);
 
     // 5. Create SSE Stream
-    
+
     const stream = createSSEStream(graph, message, checkpoint_id);
-    
+
     // 6. Return SSE Response
     return new Response(stream, {
       headers: {
