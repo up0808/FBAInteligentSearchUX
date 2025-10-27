@@ -7,6 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { ChatSession, getChatSessions, deleteSession, clearAllSessions } from "@/lib/chatSessions";
 import { UserButton, useUser, SignedIn, SignedOut } from "@clerk/nextjs";
 import { demoProfile } from "@/lib/demoProfile";
+import { cn } from "@/lib/utils";
 import { useTheme } from "@/lib/theme";
 import { 
   Plus, 
@@ -160,7 +161,24 @@ export default function Sidebar({
 
   return (
     <>
-      <div className="w-80 bg-background border-r flex flex-col h-full">
+      {/* Mobile Overlay */}
+      {!isCollapsed && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          onClick={onToggleCollapse}
+        />
+      )}
+
+      {/* Sidebar */}
+      <div className={cn(
+        "bg-background border-r flex flex-col h-full transition-transform duration-300 ease-in-out z-50",
+        // Mobile: fixed positioning with slide animation
+        "fixed inset-y-0 left-0 w-80",
+        // Desktop: static positioning
+        "lg:relative lg:translate-x-0",
+        // Collapsed state
+        isCollapsed ? "-translate-x-full lg:w-16" : "translate-x-0"
+      )}>
         {/* Header */}
         <div className="p-4 border-b">
           <div className="flex items-center justify-between mb-4">
@@ -175,8 +193,13 @@ export default function Sidebar({
               <Button variant="ghost" size="icon" className="h-8 w-8">
                 <Lock className="h-4 w-4" />
               </Button>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
-                <ChevronDown className="h-4 w-4" />
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="h-8 w-8 lg:hidden"
+                onClick={onToggleCollapse}
+              >
+                <ChevronLeft className="h-4 w-4" />
               </Button>
             </div>
           </div>
@@ -196,7 +219,7 @@ export default function Sidebar({
             <div className="text-sm font-medium text-muted-foreground mb-2">Today</div>
             {sessions.length === 0 ? (
               <div className="text-sm text-muted-foreground text-center py-8">
-                You have reached the end of your chat history.
+                No chat history yet.
               </div>
             ) : (
               sessions.map((session) => (
@@ -205,7 +228,13 @@ export default function Sidebar({
                   className={`p-3 cursor-pointer transition-colors hover:bg-accent group ${
                     currentSessionId === session.id ? "bg-accent border-primary" : ""
                   }`}
-                  onClick={() => onSessionSelect(session.id)}
+                  onClick={() => {
+                    onSessionSelect(session.id);
+                    // Close sidebar on mobile after selection
+                    if (window.innerWidth < 1024) {
+                      onToggleCollapse();
+                    }
+                  }}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex-1 min-w-0">
@@ -238,7 +267,7 @@ export default function Sidebar({
               variant="ghost"
               size="icon"
               onClick={onToggleCollapse}
-              className="h-8 w-8"
+              className="h-8 w-8 hidden lg:flex"
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
@@ -289,7 +318,7 @@ export default function Sidebar({
                   <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
                     <span className="text-white text-sm font-medium">{(user?.fullName || 'U').substring(0,1)}</span>
                   </div>
-                  <span className="text-sm">{user?.fullName}</span>
+                  <span className="text-sm hidden lg:inline">{user?.fullName}</span>
                 </div>
                 <UserButton afterSignOutUrl="/" />
               </SignedIn>
@@ -298,7 +327,7 @@ export default function Sidebar({
                   <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
                     <span className="text-white text-sm font-medium">G</span>
                   </div>
-                  <span className="text-sm">{demoProfile.fullName}</span>
+                  <span className="text-sm hidden lg:inline">{demoProfile.fullName}</span>
                 </div>
               </SignedOut>
             </div>
