@@ -10,8 +10,9 @@ interface MobileHeaderProps {
 
 export default function MobileHeader({ isSidebarOpen, onToggleSidebar }: MobileHeaderProps) {
   return (
-    <div className="lg:hidden flex items-center justify-between p-4 border-b bg-background">
-      <h1 className="text-lg font-semibold">FBA Intelligence Search</h1>
+    // --- MODIFICATION: Changed justify-between to justify-start and added gap-x-4 ---
+    <div className="lg:hidden flex items-center justify-start gap-x-4 p-4 border-b bg-background">
+      {/* --- MODIFICATION: Button moved to the top-left --- */}
       <Button
         variant="ghost"
         size="icon"
@@ -24,6 +25,10 @@ export default function MobileHeader({ isSidebarOpen, onToggleSidebar }: MobileH
           <Menu className="h-4 w-4" />
         )}
       </Button>
+      
+      {/* --- MODIFICATION: Title is now the second item --- */}
+      <h1 className="text-lg font-semibold">FBA Intelligence Search</h1>
     </div>
   );
 }
+
