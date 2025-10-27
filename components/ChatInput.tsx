@@ -80,19 +80,7 @@ export default function ChatInput({
             rows={1}
           />
           
-          {/* Model selection (like Grok Vision) */}
-          <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center space-x-2">
-            <span className="text-sm text-muted-foreground">Grok Vision</span>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-            >
-              <ChevronDown className="h-3 w-3" />
-            </Button>
-          </div>
-        </div>
+         
 
         {/* Send button */}
         <Button
