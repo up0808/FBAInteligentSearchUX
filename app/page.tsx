@@ -44,12 +44,8 @@ export default function ChatApp() {
     <>
       <SignedIn>
         <div className="flex h-screen bg-background">
-          {/* Mobile Header */}
-          <MobileHeader 
-            isSidebarOpen={!isSidebarCollapsed} 
-            onToggleSidebar={handleToggleSidebar} 
-          />
-          
+          {/* Mobile Header - REMOVED FROM HERE */}
+
           {/* Desktop Sidebar */}
           <div className="hidden lg:block">
             <Sidebar
@@ -60,7 +56,7 @@ export default function ChatApp() {
               onToggleCollapse={handleToggleSidebar}
             />
           </div>
-          
+
           {/* Mobile Sidebar Overlay */}
           {!isSidebarCollapsed && (
             <div className="lg:hidden fixed inset-0 z-50">
@@ -76,8 +72,15 @@ export default function ChatApp() {
               </div>
             </div>
           )}
-          
-          <div className="flex-1 flex flex-col">
+
+          {/* --- MODIFICATION: Main content wrapper now stacks vertically on mobile --- */}
+          <div className="flex-1 flex flex-col h-screen overflow-hidden">
+            {/* Mobile Header - MOVED HERE */}
+            <MobileHeader 
+              isSidebarOpen={!isSidebarCollapsed} 
+              onToggleSidebar={handleToggleSidebar} 
+            />
+
             <div className="flex-1 flex flex-col overflow-hidden">
               <ChatWindow messages={messages} isStreaming={isStreaming} endRef={endRef} />
             </div>
@@ -89,12 +92,8 @@ export default function ChatApp() {
       <SignedOut>
         {isGuest ? (
           <div className="flex h-screen bg-background">
-            {/* Mobile Header */}
-            <MobileHeader 
-              isSidebarOpen={!isSidebarCollapsed} 
-              onToggleSidebar={handleToggleSidebar} 
-            />
-            
+            {/* Mobile Header - REMOVED FROM HERE */}
+
             {/* Desktop Sidebar */}
             <div className="hidden lg:block">
               <Sidebar
@@ -105,7 +104,7 @@ export default function ChatApp() {
                 onToggleCollapse={handleToggleSidebar}
               />
             </div>
-            
+
             {/* Mobile Sidebar Overlay */}
             {!isSidebarCollapsed && (
               <div className="lg:hidden fixed inset-0 z-50">
@@ -121,9 +120,17 @@ export default function ChatApp() {
                 </div>
               </div>
             )}
-            
-            <div className="flex-1 flex flex-col">
-              <div className="flex items-center justify-between p-3 border-b bg-background">
+
+            {/* --- MODIFICATION: Main content wrapper now stacks vertically on mobile --- */}
+            <div className="flex-1 flex flex-col h-screen overflow-hidden">
+              {/* Mobile Header - MOVED HERE */}
+              <MobileHeader 
+                isSidebarOpen={!isSidebarCollapsed} 
+                onToggleSidebar={handleToggleSidebar} 
+              />
+
+              {/* --- MODIFICATION: Guest header now hidden on mobile --- */}
+              <div className="hidden lg:flex items-center justify-between p-3 border-b bg-background">
                 <div className="flex items-center gap-2">
                   <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500" />
                   <div className="text-sm">{demoProfile.fullName} (Guest Mode)</div>
@@ -142,3 +149,4 @@ export default function ChatApp() {
     </>
   );
 }
+
