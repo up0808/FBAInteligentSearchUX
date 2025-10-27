@@ -164,19 +164,10 @@ export default function Sidebar({
         {/* Header */}
         <div className="p-4 border-b">
           <div className="flex items-center justify-between mb-4">
-            {/* --- MODIFICATION: Mobile-only Close Button --- */}
-            <div className="lg:hidden">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onToggleCollapse}
-                className="h-8 w-8 -ml-2"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-            </div>
-            {/* --- MODIFICATION: Added margin for mobile title --- */}
-            <h1 className="text-lg font-semibold lg:ml-0 ml-2">FBA Intelligence Search</h1>
+            {/* --- MODIFICATION: Removed the mobile-only close button I added before --- */}
+            
+            {/* --- MODIFICATION: Removed ml-2 from title --- */}
+            <h1 className="text-lg font-semibold">FBA Intelligence Search</h1>
             <div className="flex items-center space-x-2">
               <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleClearAll}>
                 <Trash2 className="h-4 w-4" />
@@ -246,7 +237,7 @@ export default function Sidebar({
         {/* Footer */}
         <div className="p-4 border-t">
           <div className="flex items-center justify-between">
-            {/* --- MODIFICATION: Hide collapse button on mobile --- */}
+            {/* This is the DESKTOP collapse button, we leave it alone */}
             <Button
               variant="ghost"
               size="icon"
@@ -255,7 +246,6 @@ export default function Sidebar({
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            {/* --- MODIFICATION: Make profile section fill space on mobile --- */}
             <div className="flex items-center space-x-3 flex-1 justify-end">
               <Popover open={settingsOpen} onOpenChange={setSettingsOpen}>
                 <PopoverTrigger asChild>
@@ -327,7 +317,7 @@ export default function Sidebar({
             <DialogTitle>Delete Chat Session</DialogTitle>
             <DialogDescription>
               Are you sure you want to delete this chat session? This action cannot be undone.
-            </DialogDescription>
+            </DDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
@@ -342,4 +332,5 @@ export default function Sidebar({
     </>
   );
 }
+
 
