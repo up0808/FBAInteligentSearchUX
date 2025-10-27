@@ -26,15 +26,15 @@ export default function ChatInput({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!message.trim() || disabled) return;
-    
+
     const messageToSend = message.trim();
     setMessage("");
-    
+
     // Reset textarea height
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
-    
+
     await onSend(messageToSend);
   };
 
@@ -47,7 +47,7 @@ export default function ChatInput({
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setMessage(e.target.value);
-    
+
     // Auto-resize textarea
     const textarea = e.target;
     textarea.style.height = "auto";
@@ -79,8 +79,20 @@ export default function ChatInput({
             className="min-h-[44px] max-h-[120px] resize-none pr-20 bg-background"
             rows={1}
           />
-          
-         
+
+          {/* Model selection (like Grok Vision) */}
+          <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center space-x-2">
+            <span className="text-sm text-muted-foreground">Grok Vision</span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+            >
+              <ChevronDown className="h-3 w-3" />
+            </Button>
+          </div>
+        </div>
 
         {/* Send button */}
         <Button
