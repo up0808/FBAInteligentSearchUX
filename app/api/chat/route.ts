@@ -28,7 +28,6 @@ interface SSEEvent {
 // --- Environment Validation ---
 
 function validateEnvironment() {
-  // NOTE: Assuming your environment variables are correctly set up on Vercel
   const genAiApiKey = process.env.GOOGLE_GENAI_API_KEY;
   const googleApiKey = process.env.GOOGLE_API_KEY;
   const googleCseId = process.env.GOOGLE_CSE_ID;
@@ -41,7 +40,6 @@ function validateEnvironment() {
   if (!adminApiKey) missingVars.push('ADMIN_API_KEY');
 
   if (missingVars.length > 0) {
-    // In a real application, you might use a custom error to avoid leaking keys
     throw new Error(`Missing required environment variables: ${missingVars.join(', ')}`);
   }
 
@@ -101,6 +99,7 @@ function createGraph(envVars: ReturnType<typeof validateEnvironment>) {
         const query = toolCall.args.query || toolCall.args.input || '';
         
         try {
+          // Invoke the tool
           const searchResult = await searchTool.invoke(query);
 
           toolMessages.push(
@@ -186,9 +185,11 @@ function createSSEStream(
           version: 'v2',
         });
 
-        // --- RESILIENT STREAM STATE TRACKING ---
-        let toolCallDetected = false;
-        let toolCallExecuted = false; // Set true when on_tool_end is hit
+        // --- RESILIENT STREAM STATE TRACKING (SIMPLIFIED) ---
+        // New state flag: True if the model has requested a tool and we are now 
+        // blocking content stream until the tool results are back.
+        let isAwaitingToolResult = false;
+        let finalAnswerStarted = false; // Flag to ensure final streaming is re-enabled
         let searchQuery = '';
         const searchUrls: string[] = [];
         // ---
@@ -197,23 +198,25 @@ function createSSEStream(
           const eventType = event.event;
           const nodeName = event.name; 
 
-          // --- STEP 1: Detect Tool Call Request ---
-          if (eventType === 'on_chat_model_end' && nodeName === 'model' && !toolCallDetected) {
-            const output = event.data?.output;
+          // --- STEP 1: Detect Tool Call Request (Trigger BLOCK) ---
+          if (eventType === 'on_chat_model_end' && nodeName === 'model') {
+            const output = event.data?.output as AIMessage | undefined;
             
-            // This is the first model run, check if it contains a tool call
-            if (output?.tool_calls?.length) {
+            // Check if the output of this model run was a tool call (length > 0)
+            if (output?.tool_calls && output.tool_calls.length > 0) {
+              
+              // This is the first model run and it's calling a tool.
+              isAwaitingToolResult = true; 
+
               const searchToolCall = output.tool_calls.find(
                 (tc: { name: string }) => tc.name === 'google_custom_search'
               );
 
               if (searchToolCall) { 
-                toolCallDetected = true; 
                 searchQuery = searchToolCall.args?.query || searchToolCall.args?.input || '';
                 
-                // Immediately emit search_start event
+                // Immediately emit search_start event before the tool runs
                 if (searchQuery) {
-                  console.log('[Search Start]', searchQuery);
                   controller.enqueue(
                     encoder.encode(
                       formatSSE({
@@ -227,58 +230,54 @@ function createSSEStream(
             }
           }
 
-          // --- STEP 2: Process Tool Execution End ---
+          // --- STEP 2: Process Tool Execution End (Release BLOCK) ---
           // This marks the transition from tool execution back to the model (for the final answer)
-          if (eventType === 'on_tool_end' && nodeName === 'tool_node') {
+          if (eventType === 'on_tool_end' && nodeName === 'tool_node' && isAwaitingToolResult) {
             
-            if (toolCallDetected) { 
-              toolCallExecuted = true; // Tool has finished running, next content chunk is the answer
+            // Tool has finished running, re-enable content streaming for the final model run
+            isAwaitingToolResult = false; 
+            finalAnswerStarted = true; // Confirms we are now in the final answer phase
 
-              // Extract search results (links) from the tool output
-              const output = event.data?.output;
-              if (typeof output === 'string') {
-                try {
-                  const results = JSON.parse(output);
-                  
-                  if (Array.isArray(results)) {
-                    for (const result of results) {
-                      if (result.link && typeof result.link === 'string') {
-                        searchUrls.push(result.link);
-                      }
+            // Extract search results (links) from the tool output
+            const output = event.data?.output;
+            if (typeof output === 'string') {
+              try {
+                const results = JSON.parse(output);
+                
+                if (Array.isArray(results)) {
+                  for (const result of results) {
+                    if (result.link && typeof result.link === 'string') {
+                      searchUrls.push(result.link);
                     }
                   }
-
-                  // Immediately emit search_results event before the final answer starts streaming
-                  if (searchUrls.length > 0) {
-                    controller.enqueue(
-                      encoder.encode(
-                        formatSSE({
-                          type: 'search_results',
-                          urls: searchUrls,
-                        })
-                      )
-                    );
-                  }
-                } catch (parseError) {
-                  console.error('Failed to parse search results:', parseError);
-                  // Optionally emit an error event here
                 }
+
+                // Immediately emit search_results event 
+                if (searchUrls.length > 0) {
+                  controller.enqueue(
+                    encoder.encode(
+                      formatSSE({
+                        type: 'search_results',
+                        urls: searchUrls,
+                      })
+                    )
+                  );
+                }
+              } catch (parseError) {
+                console.error('Failed to parse search results in on_tool_end:', parseError);
               }
             }
           }
           
-          // --- STEP 3: Stream Final Content ---
+          // --- STEP 3: Stream Content with Fixed Logic ---
           if (eventType === 'on_chat_model_stream') {
             const chunk = event.data?.chunk;
             
-            if (chunk && typeof chunk.content === 'string' && chunk.content) {
+            if (typeof chunk?.content === 'string' && chunk.content) {
               
-              // CRITICAL FIX: Only stream if:
-              // 1. A tool call was NOT detected OR
-              // 2. The tool call was detected AND it has finished execution.
-              const shouldStreamContent = !toolCallDetected || toolCallExecuted;
-
-              if (shouldStreamContent) {
+              // CRITICAL FIX: Only block content if we are actively waiting for the tool results.
+              // This ensures simple queries (where isAwaitingToolResult is false) stream fine.
+              if (!isAwaitingToolResult) {
                 controller.enqueue(
                   encoder.encode(
                     formatSSE({
@@ -288,8 +287,7 @@ function createSSEStream(
                   )
                 );
               }
-              // If toolCallDetected is true and toolCallExecuted is false, we intentionally
-              // discard the content chunk (which is the tool-calling preamble).
+              // If isAwaitingToolResult is true, we discard the LLM's tool monologue.
             }
           }
         }
