@@ -6,7 +6,7 @@ import { MemorySaver } from '@langchain/langgraph-checkpoint';
 import { HumanMessage, AIMessage, BaseMessage, ToolMessage } from '@langchain/core/messages';
 import { v4 as uuidv4 } from 'uuid';
 
-// Type Definitions
+// --- Type Definitions ---
 
 const GraphState = Annotation.Root({
   messages: Annotation<BaseMessage[]>({
@@ -25,7 +25,7 @@ interface SSEEvent {
   error?: string;
 }
 
-// Environment Validation
+// --- Environment Validation ---
 
 function validateEnvironment() {
   const genAiApiKey = process.env.GOOGLE_GENAI_API_KEY;
@@ -52,7 +52,7 @@ function validateEnvironment() {
   };
 }
 
-// Authentication
+// --- Authentication ---
 
 function verifyAuthentication(request: NextRequest, adminApiKey: string): boolean {
   const authHeader = request.headers.get('authorization');
@@ -60,15 +60,15 @@ function verifyAuthentication(request: NextRequest, adminApiKey: string): boolea
   return authHeader.substring(7) === adminApiKey;
 }
 
-// LangGraph Setup
-
+// --- LangGraph Setup ---
 
 const memory = new MemorySaver();
 
 function createGraph(envVars: ReturnType<typeof validateEnvironment>) {
+  // UPDATED: Using a stable, production-ready model
   const llm = new ChatGoogleGenerativeAI({
     apiKey: envVars.genAiApiKey,
-    modelName: 'gemini-2.0-flash-exp',
+    modelName: 'gemini-1.5-flash-latest', 
     temperature: 0.7,
     maxOutputTokens: 2048,
   });
@@ -110,6 +110,7 @@ function createGraph(envVars: ReturnType<typeof validateEnvironment>) {
             continue;
           }
 
+          // The tool returns a JSON string of the results
           const searchResult = await searchTool.invoke(query);
 
           toolMessages.push(
@@ -154,7 +155,7 @@ function createGraph(envVars: ReturnType<typeof validateEnvironment>) {
 }
 
 
-// SSE Streaming with Proper Event Ordering
+// --- SSE Streaming with FIXED Event Ordering ---
 
 function formatSSE(event: SSEEvent): string {
   return `data: ${JSON.stringify(event)}\n\n`;
@@ -193,15 +194,18 @@ function createSSEStream(
           version: 'v2',
         });
 
+        // --- FIXED STATE LOGIC ---
         let hasToolCall = false;
+        let toolCallCompleted = false; // State to track if tool run is finished
         let searchQuery = '';
         const searchUrls: string[] = [];
         let finalContent = '';
+        // ---
 
         for await (const event of stream) {
           const eventType = event.event;
 
-          console.log('[SSE Debug]', eventType, event.name); // Debug log
+          console.log('[SSE Debug]', eventType, event.name, event.data); // Debug log
 
           // Detect when LLM decides to use search tool
           if (eventType === 'on_chat_model_end') {
@@ -212,8 +216,8 @@ function createSSEStream(
                 (tc: { name: string }) => tc.name === 'google_custom_search'
               );
 
-              if (searchToolCall) {
-                hasToolCall = true;
+              if (searchToolCall && !hasToolCall) { // Only trigger on first tool call
+                hasToolCall = true; // Mark that a tool call is in progress
                 searchQuery = searchToolCall.args?.query || searchToolCall.args?.input || '';
 
                 if (searchQuery) {
@@ -233,39 +237,45 @@ function createSSEStream(
             }
           }
 
+          // --- CRITICAL FIX ---
           // Capture search results from tool execution
-          if (eventType === 'on_tool_end' && event.name === 'google_custom_search') {
-            const output = event.data?.output;
+          // The event.name is the NODE name ('tool_node'), not the tool name
+          if (eventType === 'on_tool_end' && event.name === 'tool_node') {
+            
+            // Check which tool inside the node finished
+            if (event.data?.name === 'google_custom_search') {
+              console.log('[Tool "google_custom_search" End]');
+              toolCallCompleted = true; // Mark that the tool has finished running
+              const output = event.data?.output;
 
-            console.log('[Tool Output]', output);
-
-            if (typeof output === 'string') {
-              try {
-                const results = JSON.parse(output);
-                
-                if (Array.isArray(results)) {
-                  for (const result of results) {
-                    if (result.link) {
-                      searchUrls.push(result.link);
+              if (typeof output === 'string') {
+                try {
+                  const results = JSON.parse(output);
+                  
+                  if (Array.isArray(results)) {
+                    for (const result of results) {
+                      if (result.link && typeof result.link === 'string') {
+                        searchUrls.push(result.link);
+                      }
                     }
                   }
-                }
 
-                if (searchUrls.length > 0) {
-                  console.log('[Search Results]', searchUrls);
-                  
-                  // Emit search_results event
-                  controller.enqueue(
-                    encoder.encode(
-                      formatSSE({
-                        type: 'search_results',
-                        urls: searchUrls,
-                      })
-                    )
-                  );
+                  if (searchUrls.length > 0) {
+                    console.log('[Search Results]', searchUrls);
+                    
+                    // Emit search_results event
+                    controller.enqueue(
+                      encoder.encode(
+                        formatSSE({
+                          type: 'search_results',
+                          urls: searchUrls,
+                        })
+                      )
+                    );
+                  }
+                } catch (parseError) {
+                  console.error('Failed to parse search results:', parseError);
                 }
-              } catch (parseError) {
-                console.error('Failed to parse search results:', parseError);
               }
             }
           }
@@ -274,20 +284,26 @@ function createSSEStream(
           if (eventType === 'on_chat_model_stream') {
             const chunk = event.data?.chunk;
             
-            // Only stream content if this is NOT a tool call response
             if (chunk && typeof chunk.content === 'string' && chunk.content) {
               // Check if this chunk has tool_calls - if so, skip streaming its content
               if (!chunk.tool_calls || chunk.tool_calls.length === 0) {
-                finalContent += chunk.content;
                 
-                controller.enqueue(
-                  encoder.encode(
-                    formatSSE({
-                      type: 'content',
-                      content: chunk.content,
-                    })
-                  )
-                );
+                // --- CRITICAL FIX ---
+                // Only stream content IF:
+                // 1. No tool call was ever made (simple query)
+                // 2. OR a tool call was made AND it has completed (final answer)
+                if (!hasToolCall || toolCallCompleted) {
+                  finalContent += chunk.content;
+                  
+                  controller.enqueue(
+                    encoder.encode(
+                      formatSSE({
+                        type: 'content',
+                        content: chunk.content,
+                      })
+                    )
+                  );
+                }
               }
             }
           }
@@ -316,7 +332,7 @@ function createSSEStream(
   });
 }
 
-// API Route Handler
+// --- API Route Handler ---
 
 export async function GET(request: NextRequest) {
   try {
@@ -359,12 +375,13 @@ export async function GET(request: NextRequest) {
     const graph = createGraph(envVars);
     const stream = createSSEStream(graph, message, checkpointId);
 
+    // Return the stream with production-ready SSE headers
     return new Response(stream, {
       headers: {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache, no-transform',
         'Connection': 'keep-alive',
-        'X-Accel-Buffering': 'no',
+        'X-Accel-Buffering': 'no', // Important for Vercel/proxies
       },
     });
   } catch (error) {
@@ -378,6 +395,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// Standard OPTIONS handler for CORS preflight requests
 export async function OPTIONS() {
   return new Response(null, {
     status: 200,
