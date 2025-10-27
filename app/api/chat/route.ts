@@ -65,7 +65,7 @@ function verifyAuthentication(request: NextRequest, adminApiKey: string): boolea
 const memory = new MemorySaver();
 
 function createGraph(envVars: ReturnType<typeof validateEnvironment>) {
-  // UPDATED: Using a stable, production-ready model
+  // Using a stable, production-ready model
   const llm = new ChatGoogleGenerativeAI({
     apiKey: envVars.genAiApiKey,
     modelName: 'gemini-1.5-flash-latest', 
@@ -97,6 +97,7 @@ function createGraph(envVars: ReturnType<typeof validateEnvironment>) {
     for (const toolCall of lastMessage.tool_calls) {
       try {
         if (toolCall.name === 'google_custom_search') {
+          // Note: The GoogleCustomSearch tool uses a JSON string for its output content.
           const query = toolCall.args.query || toolCall.args.input || '';
           
           if (!query) {
@@ -110,7 +111,6 @@ function createGraph(envVars: ReturnType<typeof validateEnvironment>) {
             continue;
           }
 
-          // The tool returns a JSON string of the results
           const searchResult = await searchTool.invoke(query);
 
           toolMessages.push(
@@ -205,7 +205,7 @@ function createSSEStream(
         for await (const event of stream) {
           const eventType = event.event;
 
-          console.log('[SSE Debug]', eventType, event.name, event.data); // Debug log
+          console.log('[SSE Debug]', eventType, event.name, event.data);
 
           // Detect when LLM decides to use search tool
           if (eventType === 'on_chat_model_end') {
@@ -216,8 +216,8 @@ function createSSEStream(
                 (tc: { name: string }) => tc.name === 'google_custom_search'
               );
 
-              if (searchToolCall && !hasToolCall) { // Only trigger on first tool call
-                hasToolCall = true; // Mark that a tool call is in progress
+              if (searchToolCall && !hasToolCall) { 
+                hasToolCall = true; // Mark that a tool call is requested
                 searchQuery = searchToolCall.args?.query || searchToolCall.args?.input || '';
 
                 if (searchQuery) {
@@ -237,15 +237,15 @@ function createSSEStream(
             }
           }
 
-          // --- CRITICAL FIX ---
-          // Capture search results from tool execution
-          // The event.name is the NODE name ('tool_node'), not the tool name
+          // FIX: Rely only on event.name being the NODE name.
+          // Since 'tool_node' only executes one tool, this is a safe, type-safe check.
           if (eventType === 'on_tool_end' && event.name === 'tool_node') {
             
-            // Check which tool inside the node finished
-            if (event.data?.name === 'google_custom_search') {
-              console.log('[Tool "google_custom_search" End]');
+            if (hasToolCall) { 
+              console.log('[Search Tool Execution End]');
               toolCallCompleted = true; // Mark that the tool has finished running
+
+              // The data payload for 'on_tool_end' from a node contains the tool's output.
               const output = event.data?.output;
 
               if (typeof output === 'string') {
@@ -254,6 +254,7 @@ function createSSEStream(
                   
                   if (Array.isArray(results)) {
                     for (const result of results) {
+                      // Check for both 'link' existence and type safety
                       if (result.link && typeof result.link === 'string') {
                         searchUrls.push(result.link);
                       }
@@ -285,13 +286,12 @@ function createSSEStream(
             const chunk = event.data?.chunk;
             
             if (chunk && typeof chunk.content === 'string' && chunk.content) {
-              // Check if this chunk has tool_calls - if so, skip streaming its content
+              // Check if this chunk has tool_calls (meaning it's the *first* model run)
               if (!chunk.tool_calls || chunk.tool_calls.length === 0) {
                 
-                // --- CRITICAL FIX ---
-                // Only stream content IF:
-                // 1. No tool call was ever made (simple query)
-                // 2. OR a tool call was made AND it has completed (final answer)
+                // Only stream content if:
+                // 1. No tool call was requested (!hasToolCall)
+                // 2. OR the tool call has finished (toolCallCompleted)
                 if (!hasToolCall || toolCallCompleted) {
                   finalContent += chunk.content;
                   
@@ -406,3 +406,4 @@ export async function OPTIONS() {
     },
   });
 }
+
