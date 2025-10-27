@@ -66,7 +66,7 @@ const memory = new MemorySaver();
 function createGraph(envVars: ReturnType<typeof validateEnvironment>) {
   const llm = new ChatGoogleGenerativeAI({
     apiKey: envVars.genAiApiKey,
-    modelName: 'gemini-1.5-flash-latest', 
+    modelName: 'gemini-2.5-flash', 
     temperature: 0.7,
     maxOutputTokens: 2048,
   });
