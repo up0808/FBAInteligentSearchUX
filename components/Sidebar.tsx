@@ -7,7 +7,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { ChatSession, getChatSessions, deleteSession, clearAllSessions } from "@/lib/chatSessions";
 import { UserButton, useUser, SignedIn, SignedOut } from "@clerk/nextjs";
 import { demoProfile } from "@/lib/demoProfile";
-import { cn } from "@/lib/utils";
 import { useTheme } from "@/lib/theme";
 import { 
   Plus, 
@@ -84,7 +83,7 @@ export default function Sidebar({
     const now = new Date();
     const diff = now.getTime() - date.getTime();
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    
+
     if (days === 0) return "Today";
     if (days === 1) return "Yesterday";
     if (days < 7) return `${days} days ago`;
@@ -161,28 +160,23 @@ export default function Sidebar({
 
   return (
     <>
-      {/* Mobile Overlay */}
-      {!isCollapsed && (
-        <div 
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-          onClick={onToggleCollapse}
-        />
-      )}
-
-      {/* Sidebar */}
-      <div className={cn(
-        "bg-background border-r flex flex-col h-full transition-transform duration-300 ease-in-out z-50",
-        // Mobile: fixed positioning with slide animation
-        "fixed inset-y-0 left-0 w-80",
-        // Desktop: static positioning
-        "lg:relative lg:translate-x-0",
-        // Collapsed state
-        isCollapsed ? "-translate-x-full lg:w-16" : "translate-x-0"
-      )}>
+      <div className="w-80 bg-background border-r flex flex-col h-full">
         {/* Header */}
         <div className="p-4 border-b">
           <div className="flex items-center justify-between mb-4">
-            <h1 className="text-lg font-semibold">FBA Intelligence Search</h1>
+            {/* --- MODIFICATION: Mobile-only Close Button --- */}
+            <div className="lg:hidden">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onToggleCollapse}
+                className="h-8 w-8 -ml-2"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+            </div>
+            {/* --- MODIFICATION: Added margin for mobile title --- */}
+            <h1 className="text-lg font-semibold lg:ml-0 ml-2">FBA Intelligence Search</h1>
             <div className="flex items-center space-x-2">
               <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleClearAll}>
                 <Trash2 className="h-4 w-4" />
@@ -193,13 +187,8 @@ export default function Sidebar({
               <Button variant="ghost" size="icon" className="h-8 w-8">
                 <Lock className="h-4 w-4" />
               </Button>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-8 w-8 lg:hidden"
-                onClick={onToggleCollapse}
-              >
-                <ChevronLeft className="h-4 w-4" />
+              <Button variant="ghost" size="icon" className="h-8 w-8">
+                <ChevronDown className="h-4 w-4" />
               </Button>
             </div>
           </div>
@@ -219,7 +208,7 @@ export default function Sidebar({
             <div className="text-sm font-medium text-muted-foreground mb-2">Today</div>
             {sessions.length === 0 ? (
               <div className="text-sm text-muted-foreground text-center py-8">
-                No chat history yet.
+                You have reached the end of your chat history.
               </div>
             ) : (
               sessions.map((session) => (
@@ -228,13 +217,7 @@ export default function Sidebar({
                   className={`p-3 cursor-pointer transition-colors hover:bg-accent group ${
                     currentSessionId === session.id ? "bg-accent border-primary" : ""
                   }`}
-                  onClick={() => {
-                    onSessionSelect(session.id);
-                    // Close sidebar on mobile after selection
-                    if (window.innerWidth < 1024) {
-                      onToggleCollapse();
-                    }
-                  }}
+                  onClick={() => onSessionSelect(session.id)}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex-1 min-w-0">
@@ -263,15 +246,17 @@ export default function Sidebar({
         {/* Footer */}
         <div className="p-4 border-t">
           <div className="flex items-center justify-between">
+            {/* --- MODIFICATION: Hide collapse button on mobile --- */}
             <Button
               variant="ghost"
               size="icon"
               onClick={onToggleCollapse}
-              className="h-8 w-8 hidden lg:flex"
+              className="h-8 w-8 hidden lg:inline-flex"
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <div className="flex items-center space-x-3">
+            {/* --- MODIFICATION: Make profile section fill space on mobile --- */}
+            <div className="flex items-center space-x-3 flex-1 justify-end">
               <Popover open={settingsOpen} onOpenChange={setSettingsOpen}>
                 <PopoverTrigger asChild>
                   <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -318,7 +303,7 @@ export default function Sidebar({
                   <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
                     <span className="text-white text-sm font-medium">{(user?.fullName || 'U').substring(0,1)}</span>
                   </div>
-                  <span className="text-sm hidden lg:inline">{user?.fullName}</span>
+                  <span className="text-sm">{user?.fullName}</span>
                 </div>
                 <UserButton afterSignOutUrl="/" />
               </SignedIn>
@@ -327,7 +312,7 @@ export default function Sidebar({
                   <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
                     <span className="text-white text-sm font-medium">G</span>
                   </div>
-                  <span className="text-sm hidden lg:inline">{demoProfile.fullName}</span>
+                  <span className="text-sm">{demoProfile.fullName}</span>
                 </div>
               </SignedOut>
             </div>
@@ -357,3 +342,4 @@ export default function Sidebar({
     </>
   );
 }
+
