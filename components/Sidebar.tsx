@@ -317,7 +317,7 @@ export default function Sidebar({
             <DialogTitle>Delete Chat Session</DialogTitle>
             <DialogDescription>
               Are you sure you want to delete this chat session? This action cannot be undone.
-            </DDescription>
+            </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
