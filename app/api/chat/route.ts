@@ -68,7 +68,7 @@ function createGraph(envVars: ReturnType<typeof validateEnvironment>) {
   // Using a stable, production-ready model
   const llm = new ChatGoogleGenerativeAI({
     apiKey: envVars.genAiApiKey,
-    modelName: 'gemini-1.5-flash-latest', 
+    modelName: 'gemini-2.5-pro', 
     temperature: 0.7,
     maxOutputTokens: 2048,
   });
