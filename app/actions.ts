@@ -1,17 +1,21 @@
-// actions.ts
 'use server';
 
 import { createAI, streamUI } from 'ai/rsc';
 import { google } from '@ai-sdk/google';
 import { ReactNode } from 'react';
-import { UIState, AIState } from './lib/types'; // Ensure this path is correct
-import { nanoid } from 'nanoid';
+import { nanoid } from 'nanoid'; // CORRECTED: Now imports nanoid correctly
 
-// Define the shape of the UI message components for display
-interface Message {
+// Define the state types (Assuming lib/types.ts is in place)
+type AIState = {
+  id: string; 
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+}[];
+
+type UIState = {
   id: string;
   display: ReactNode;
-}
+}[];
 
 // Simple component for displaying the bot's response
 function BotMessage({ content }: { content: string }) {
@@ -25,32 +29,24 @@ function BotMessage({ content }: { content: string }) {
 
 /**
  * The main server action that handles user input and streams the AI's response.
- * @param userInput The message typed by the user.
- * @returns An updated UIState array with the new message and the AI's streamed response.
  */
-async function submitUserMessage(userInput: string): Promise<Message> {
-  // Update AI state to include the user's message
+async function submitUserMessage(userInput: string): Promise<{ id: string; display: ReactNode }> {
   const newId = nanoid();
   
-  // As a server component, we need to read the current state and then append to it
+  // Update AI state to include the user's message
   const aiState = getAIState(); 
   const updatedAIState: AIState = [
     ...aiState,
     { role: 'user', content: userInput, id: newId },
   ];
 
-  // Call the generative model
   const result = await streamUI({
-    model: google('gemini-2.5-flash'), // Use a suitable Gemini model
+    model: google('gemini-2.5-flash'),
     messages: updatedAIState,
-    initialUI: <BotMessage content="Thinking..." />, // Placeholder while streaming
+    initialUI: <BotMessage content="Thinking..." />,
     
-    // The generator function decides how to turn the streamed text into UI
-    text: ({ content, done }) => {
-      if (done) {
-        // When finished, update the AI state with the full response for history
-        // Note: The AI SDK handles the AI state update internally in a standard chat app.
-      }
+    text: ({ content }) => {
+      // The content is streamed piece-by-piece
       return <BotMessage content={content} />;
     },
   });
@@ -75,5 +71,9 @@ export const AI = createAI<AIState, UIState>({
   initialAIState,
 });
 
-// Re-export the utility functions to be used inside the component structure
+// IMPORTANT: Re-export the client-side hooks from this file.
+// The client components will import these specific hooks from './actions'.
+export const { useUIState, useActions } = AI;
+
+// Re-export utility functions for use in server components if needed
 export { getAIState, getUIState } from 'ai/rsc';
