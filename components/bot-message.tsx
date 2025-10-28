@@ -4,23 +4,20 @@ import { Bot, Loader2, Image as ImageIcon, Search, Calculator, Cloud } from 'luc
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-type SearchResult = {
-  url: string;
-  title: string;
-  snippet: string;
-  [key: string]: any; // Allow other properties like 'link'
+type ToolInvocation = {
+  state: 'partial-call' | 'call' | 'result';
+  toolCallId: string;
+  toolName: string;
+  args?: any;
+  result?: any;
 };
 
 type BotMessageProps = {
-  content: string | object;
-  isLoading?: boolean;
-  isError?: boolean;
-  sources?: SearchResult[];
-  messageType?: string;
-  toolArgs?: any;
+  content: string;
+  toolInvocations?: ToolInvocation[];
 };
 
-// --- Helper to get a user-friendly name for the tool ---
+// Helper to get a user-friendly name for the tool
 function getToolInfo(toolName: string, args: any): { icon: React.ReactNode; text: string } {
   const query = args?.query || args?.expression || args?.location || '...';
   switch (toolName) {
@@ -33,126 +30,29 @@ function getToolInfo(toolName: string, args: any): { icon: React.ReactNode; text
     case 'weather':
       return { icon: <Cloud className="h-4 w-4" />, text: `Fetching weather for: "${query}"` };
     default:
-      return { icon: <Loader2 className="h-4 w-4 animate-spin" />, text: `Thinking...` };
+      return { icon: <Loader2 className="h-4 w-4 animate-spin" />, text: `Using tool: ${toolName}` };
   }
 }
 
-export default function BotMessage({
-  content,
-  isLoading = false,
-  isError = false,
-  sources = [],
-  messageType,
-  toolArgs,
-}: BotMessageProps) {
+export default function BotMessage({ content, toolInvocations }: BotMessageProps) {
+  // Extract sources from web search results
+  const sources: string[] = [];
   
-  // --- 1. Handle Loading/Thinking State ---
-  if (isLoading) {
-    const { icon, text } = getToolInfo(messageType || 'loading', toolArgs);
-    return (
-      <div className="flex max-w-sm items-start gap-3">
-        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gray-200">
-          <Bot className="h-5 w-5 text-gray-600" />
-        </div>
-        <div className="flex-1 space-y-2 overflow-hidden rounded-xl bg-gray-100 px-4 py-3">
-          <div className="flex items-center gap-2 text-sm text-gray-600">
-            {icon}
-            <span>{text}</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // --- 2. Handle Error State ---
-  if (isError) {
-    return (
-      <div className="flex max-w-sm items-start gap-3">
-        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-red-100">
-          <Bot className="h-5 w-5 text-red-600" />
-        </div>
-        <div className="flex-1 space-y-2 overflow-hidden rounded-xl bg-red-50 px-4 py-3 text-red-700">
-          {typeof content === 'string' ? content : JSON.stringify(content)}
-        </div>
-      </div>
-    );
-  }
-
-  // --- 3. Handle Tool Output (non-string content) ---
-  if (typeof content !== 'string') {
-    let toolName = messageType || 'webSearch';
-    let toolOutput = content as any;
-    let displayContent: React.ReactNode = null;
-
-    try {
-      if (toolName === 'webSearch' && toolOutput.results) {
-        displayContent = (
-          <div>
-            <p className="text-sm text-gray-600">
-              Found {toolOutput.results.length} web results.
-            </p>
-            {/* Sources will be rendered by the final message */}
-          </div>
-        );
-      } else if (toolName === 'imageSearch' && toolOutput.images) {
-        displayContent = (
-          <div className="grid grid-cols-2 gap-2">
-            {toolOutput.images.slice(0, 4).map((img: any, idx: number) => (
-              <a
-                key={idx}
-                href={img.url}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <img
-                  src={img.thumbnail}
-                  alt={img.title}
-                  className="rounded-lg object-cover"
-                />
-              </a>
-            ))}
-          </div>
-        );
-      } else if (toolName === 'calculator') {
-        displayContent = (
-          <p className="text-lg font-medium">
-            Result: {toolOutput.result}
-          </p>
-        );
-      } else if (toolName === 'weather') {
-        displayContent = (
-          <div className="text-sm">
-            <p className="font-medium">{toolOutput.location}</p>
-            <p>{toolOutput.temperature}°{toolOutput.unit} &bull; {toolOutput.condition}</p>
-          </div>
-        );
-      } else {
-        // Fallback for unknown tool
-        displayContent = (
-          <pre className="text-xs">{JSON.stringify(content, null, 2)}</pre>
-        );
+  if (toolInvocations) {
+    toolInvocations.forEach((invocation) => {
+      if (
+        invocation.toolName === 'webSearch' &&
+        invocation.state === 'result' &&
+        invocation.result?.results
+      ) {
+        invocation.result.results.forEach((result: any) => {
+          if (result.url) {
+            sources.push(result.url);
+          }
+        });
       }
-    } catch (e) {
-      displayContent = <pre className="text-xs">{JSON.stringify(content, null, 2)}</pre>
-    }
-
-    return (
-      <div className="flex max-w-sm items-start gap-3">
-        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gray-200">
-          <Bot className="h-5 w-5 text-gray-600" />
-        </div>
-        <div className="flex-1 space-y-2 overflow-hidden rounded-xl bg-gray-100 px-4 py-3">
-          {displayContent}
-        </div>
-      </div>
-    );
+    });
   }
-
-
-  // --- 4. Handle Final Text Response (string content) ---
-  const validSources = sources
-    .map(s => s.url || s.link) // Handle both 'url' and 'link'
-    .filter(Boolean);
 
   return (
     <div className="flex max-w-2xl items-start gap-3">
@@ -160,19 +60,84 @@ export default function BotMessage({
         <Bot className="h-5 w-5 text-gray-600" />
       </div>
       <div className="flex-1 space-y-2 overflow-hidden rounded-xl bg-gray-100 px-4 py-3">
-        {/* This renders the markdown */}
-        <article className="prose prose-sm prose-p:leading-normal">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
-        </article>
+        {/* Tool invocations */}
+        {toolInvocations && toolInvocations.length > 0 && (
+          <div className="space-y-2 mb-2">
+            {toolInvocations.map((invocation) => {
+              const { icon, text } = getToolInfo(invocation.toolName, invocation.args);
+              
+              // Show loading state for partial calls and calls
+              if (invocation.state === 'partial-call' || invocation.state === 'call') {
+                return (
+                  <div key={invocation.toolCallId} className="flex items-center gap-2 text-sm text-gray-600">
+                    {icon}
+                    <span>{text}</span>
+                  </div>
+                );
+              }
 
-        {/* This renders the clickable sources */}
-        {validSources.length > 0 && (
+              // Show results for completed tools
+              if (invocation.state === 'result') {
+                if (invocation.toolName === 'imageSearch' && invocation.result?.images) {
+                  return (
+                    <div key={invocation.toolCallId} className="grid grid-cols-2 gap-2 mt-2">
+                      {invocation.result.images.slice(0, 4).map((img: any, idx: number) => (
+                        <a
+                          key={idx}
+                          href={img.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block"
+                        >
+                          <img
+                            src={img.thumbnail}
+                            alt={img.title}
+                            className="rounded-lg object-cover w-full h-32"
+                          />
+                        </a>
+                      ))}
+                    </div>
+                  );
+                }
+
+                if (invocation.toolName === 'calculator' && invocation.result?.result !== undefined) {
+                  return (
+                    <div key={invocation.toolCallId} className="text-sm">
+                      <p className="text-gray-600">Result: <span className="font-medium text-gray-800">{invocation.result.result}</span></p>
+                    </div>
+                  );
+                }
+
+                if (invocation.toolName === 'weather' && invocation.result?.location) {
+                  return (
+                    <div key={invocation.toolCallId} className="text-sm">
+                      <p className="font-medium">{invocation.result.location}</p>
+                      <p className="text-gray-600">
+                        {invocation.result.temperature}°{invocation.result.unit} • {invocation.result.condition}
+                      </p>
+                    </div>
+                  );
+                }
+              }
+
+              return null;
+            })}
+          </div>
+        )}
+
+        {/* Main content */}
+        {content && (
+          <article className="prose prose-sm prose-p:leading-normal max-w-none">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          </article>
+        )}
+
+        {/* Sources */}
+        {sources.length > 0 && (
           <div className="mt-4 border-t pt-2">
-            <h4 className="mb-1 text-xs font-semibold text-gray-600">
-              Sources
-            </h4>
+            <h4 className="mb-1 text-xs font-semibold text-gray-600">Sources</h4>
             <div className="flex flex-wrap gap-2">
-              {validSources.map((url, index) => {
+              {sources.map((url, index) => {
                 let hostname;
                 try {
                   hostname = new URL(url).hostname;
