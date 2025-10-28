@@ -10,13 +10,46 @@ const math = create(all, {
 const withTimeout = (promise: Promise<Response>, ms = 8000) =>
   Promise.race([
     promise,
-    new Promise((_, reject) =>
+    new Promise<Response>((_, reject) =>
       setTimeout(() => reject(new Error('Request timeout')), ms),
     ),
   ]);
 
 /**
- * Google Custom Web Search Tool
+ * Calculator Tool
+ */
+export const calculatorTool = tool({
+  description:
+    'Perform mathematical calculations from basic arithmetic to advanced Class-12 level and higher, including trigonometry, logarithms, algebra, and calculus expressions.',
+  parameters: z.object({
+    expression: z
+      .string()
+      .describe(
+        'Mathematical expression (e.g., "2 + 2", "sqrt(16)", "sin(45 deg)", "log(100,10)", "integrate(x^2, x)")',
+      ),
+  }),
+  execute: async ({ expression }) => {
+    console.log(`[Calculator] Expression: "${expression}"`);
+    try {
+      const result = math.evaluate(expression);
+
+      return {
+        expression,
+        result,
+        success: true,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error: any) {
+      console.error('Calculation error:', error.message);
+      return {
+        expression,
+        error: error.message || 'Invalid or unsupported mathematical expression',
+        success: false,
+        timestamp: new Date().toISOString(),
+      };
+    }
+  },
+}); Google Custom Web Search Tool
  */
 export const webSearchTool = tool({
   description:
@@ -50,7 +83,7 @@ export const webSearchTool = tool({
     )}&key=${apiKey}&cx=${cx}&num=${numResults}`;
 
     try {
-      const response = (await withTimeout(fetch(apiUrl))) as Response;
+      const response = await withTimeout(fetch(apiUrl));
       if (!response.ok) {
         throw new Error(`Google API Error: ${response.status}`);
       }
@@ -60,7 +93,7 @@ export const webSearchTool = tool({
 
       const results = items.map((item: any) => ({
         title: item.title,
-        url: item.link, // 'link' is the correct field
+        url: item.link,
         snippet: item.snippet || '',
       }));
 
@@ -87,7 +120,7 @@ export const webSearchTool = tool({
  */
 export const weatherTool = tool({
   description:
-    'Get current weather information for a specific city or location using a free weather API (Open-Meteo).',
+    'Get current weather information for a specific city or location using Open-Meteo API.',
   parameters: z.object({
     location: z
       .string()
@@ -102,7 +135,7 @@ export const weatherTool = tool({
       const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
         location,
       )}&count=1`;
-      const geoRes = (await withTimeout(fetch(geoUrl))) as Response;
+      const geoRes = await withTimeout(fetch(geoUrl));
       const geoData = await geoRes.json();
 
       if (!geoData.results || geoData.results.length === 0) {
@@ -118,7 +151,7 @@ export const weatherTool = tool({
       // Step 2: Fetch weather
       const tempUnit = units === 'fahrenheit' ? 'fahrenheit' : 'celsius';
       const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true&temperature_unit=${tempUnit}&windspeed_unit=kmh`;
-      const weatherRes = (await withTimeout(fetch(weatherUrl))) as Response;
+      const weatherRes = await withTimeout(fetch(weatherUrl));
       const weatherData = await weatherRes.json();
 
       if (!weatherData.current_weather) {
@@ -199,7 +232,7 @@ export const imageSearchTool = tool({
         const googleUrl = `https://www.googleapis.com/customsearch/v1?q=${encodeURIComponent(
           query,
         )}&searchType=image&num=${count}&key=${googleKey}&cx=${googleCx}`;
-        const res = (await withTimeout(fetch(googleUrl))) as Response;
+        const res = await withTimeout(fetch(googleUrl));
         if (res.ok) {
           const data = await res.json();
           if (data.items?.length) {
@@ -217,7 +250,7 @@ export const imageSearchTool = tool({
         const unsplashUrl = `https://api.unsplash.com/search/photos?query=${encodeURIComponent(
           query,
         )}&per_page=${count}&client_id=${unsplashKey}`;
-        const res = (await withTimeout(fetch(unsplashUrl))) as Response;
+        const res = await withTimeout(fetch(unsplashUrl));
         if (res.ok) {
           const data = await res.json();
           if (data.results?.length) {
@@ -252,37 +285,4 @@ export const imageSearchTool = tool({
 });
 
 /**
- * Calculator Tool
- */
-export const calculatorTool = tool({
-  description:
-    'Perform mathematical calculations from basic arithmetic to advanced Class-12 level and higher, including trigonometry, logarithms, algebra, and calculus expressions.',
-  parameters: z.object({
-    expression: z
-      .string()
-      .describe(
-        'Mathematical expression (e.g., "2 + 2", "sqrt(16)", "sin(45 deg)", "log(100,10)", "integrate(x^2, x)")',
-      ),
-  }),
-  execute: async ({ expression }) => {
-    console.log(`[Calculator] Expression: "${expression}"`);
-    try {
-      const result = math.evaluate(expression);
-
-      return {
-        expression,
-        result,
-        success: true,
-        timestamp: new Date().toISOString(),
-      };
-    } catch (error: any) {
-      console.error('Calculation error:', error.message);
-      return {
-        expression,
-        error: error.message || 'Invalid or unsupported mathematical expression',
-        success: false,
-        timestamp: new Date().toISOString(),
-      };
-    }
-  },
-});
+ *
