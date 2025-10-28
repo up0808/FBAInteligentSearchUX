@@ -44,6 +44,21 @@ export interface StreamEventSearchError {
 export interface StreamEventEnd {
   type: "end";
 }
+export type AIState = {
+  id: string; // Unique identifier for the message
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+}[];
+
+/**
+ * UIState is the client-side state, primarily composed of React nodes,
+ * that represents the current chat UI to the user.
+ */
+export type UIState = {
+  id: string;
+  display: React.ReactNode;
+}[];
+
 
 export type StreamEvent =
   | StreamEventContent
