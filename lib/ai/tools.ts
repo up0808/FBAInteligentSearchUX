@@ -10,24 +10,33 @@ const math = create(all, {
 const withTimeout = (promise: Promise<Response>, ms = 8000) =>
   Promise.race([
     promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timeout')), ms)),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Request timeout')), ms),
+    ),
   ]);
+
 /**
  * Google Custom Web Search Tool
- * Simulates searching the web for information
- * In production, integrate with real APIs like Serper, Brave Search, etc.
- */export const webSearchTool = tool({
-  description: 'Search the web using Google Custom Search API for real-time and recent information.',
+ */
+export const webSearchTool = tool({
+  description:
+    'Search the web using Google Custom Search API for real-time and recent information.',
   parameters: z.object({
     query: z.string().describe('The search query'),
-    numResults: z.number().optional().default(5).describe('Number of results to return'),
+    numResults: z
+      .number()
+      .optional()
+      .default(5)
+      .describe('Number of results to return'),
   }),
   execute: async ({ query, numResults }) => {
     const apiKey = process.env.GOOGLE_API_KEY;
     const cx = process.env.GOOGLE_CSE_ID;
 
     if (!apiKey || !cx) {
-      console.error('Missing GOOGLE_API_KEY or GOOGLE_CSE_ID in environment variables.');
+      console.error(
+        'Missing GOOGLE_API_KEY or GOOGLE_CSE_ID in environment variables.',
+      );
       return {
         query,
         results: [],
@@ -36,10 +45,12 @@ const withTimeout = (promise: Promise<Response>, ms = 8000) =>
       };
     }
 
-    const apiUrl = `https://www.googleapis.com/customsearch/v1?q=${encodeURIComponent(query)}&key=${apiKey}&cx=${cx}&num=${numResults}`;
+    const apiUrl = `https://www.googleapis.com/customsearch/v1?q=${encodeURIComponent(
+      query,
+    )}&key=${apiKey}&cx=${cx}&num=${numResults}`;
 
     try {
-      const response = await withTimeout(fetch(apiUrl));
+      const response = (await withTimeout(fetch(apiUrl))) as Response;
       if (!response.ok) {
         throw new Error(`Google API Error: ${response.status}`);
       }
@@ -49,7 +60,7 @@ const withTimeout = (promise: Promise<Response>, ms = 8000) =>
 
       const results = items.map((item: any) => ({
         title: item.title,
-        url: item.link,
+        url: item.link, // 'link' is the correct field
         snippet: item.snippet || '',
       }));
 
@@ -73,21 +84,25 @@ const withTimeout = (promise: Promise<Response>, ms = 8000) =>
 
 /**
  * Weather Tool
- * Fetches current weather information
- * In production, integrate with OpenWeatherMap, WeatherAPI, etc.
- */export const weatherTool = tool({
-  description: 'Get current weather information for a specific city or location using a free weather API (Open-Meteo).',
+ */
+export const weatherTool = tool({
+  description:
+    'Get current weather information for a specific city or location using a free weather API (Open-Meteo).',
   parameters: z.object({
-    location: z.string().describe('City name or location (e.g., London, New York, Delhi)'),
+    location: z
+      .string()
+      .describe('City name or location (e.g., London, New York, Delhi)'),
     units: z.enum(['celsius', 'fahrenheit']).optional().default('celsius'),
   }),
   execute: async ({ location, units }) => {
     console.log(`[Weather] Location: "${location}", Units: ${units}`);
 
     try {
-      // Step 1: Geocode city name -> latitude, longitude using Open-Meteo’s geocoding API (free)
-      const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1`;
-      const geoRes = await withTimeout(fetch(geoUrl));
+      // Step 1: Geocode
+      const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
+        location,
+      )}&count=1`;
+      const geoRes = (await withTimeout(fetch(geoUrl))) as Response;
       const geoData = await geoRes.json();
 
       if (!geoData.results || geoData.results.length === 0) {
@@ -100,19 +115,19 @@ const withTimeout = (promise: Promise<Response>, ms = 8000) =>
 
       const { latitude, longitude, name, country } = geoData.results[0];
 
-      // Step 2: Fetch current weather using Open-Meteo API
+      // Step 2: Fetch weather
       const tempUnit = units === 'fahrenheit' ? 'fahrenheit' : 'celsius';
       const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true&temperature_unit=${tempUnit}&windspeed_unit=kmh`;
-      const weatherRes = await withTimeout(fetch(weatherUrl));
+      const weatherRes = (await withTimeout(fetch(weatherUrl))) as Response;
       const weatherData = await weatherRes.json();
 
       if (!weatherData.current_weather) {
         throw new Error('Weather data unavailable');
       }
 
-      const { temperature, windspeed, weathercode } = weatherData.current_weather;
+      const { temperature, windspeed, weathercode } =
+        weatherData.current_weather;
 
-      // Optional: simple weather code map for human-readable condition
       const conditions: Record<number, string> = {
         0: 'Clear sky',
         1: 'Mainly clear',
@@ -150,12 +165,17 @@ const withTimeout = (promise: Promise<Response>, ms = 8000) =>
 
 /**
  * Image Search Tool
- * Searches for images based on a query
- */export const imageSearchTool = tool({
-  description: 'Search for images using Google Custom Search (Image Type) or fallback to Unsplash API.',
+ */
+export const imageSearchTool = tool({
+  description:
+    'Search for images using Google Custom Search (Image Type) or fallback to Unsplash API.',
   parameters: z.object({
     query: z.string().describe('The image search query'),
-    count: z.number().optional().default(4).describe('Number of images to return'),
+    count: z
+      .number()
+      .optional()
+      .default(4)
+      .describe('Number of images to return'),
   }),
   execute: async ({ query, count }) => {
     const googleKey = process.env.GOOGLE_API_KEY;
@@ -164,11 +184,11 @@ const withTimeout = (promise: Promise<Response>, ms = 8000) =>
 
     console.log(`[Image Search] Query: "${query}", Count: ${count}`);
 
-    // Helper to format results
     const formatResults = (items: any[], source: string) =>
       items.map((item: any, i: number) => ({
         url: item.link || item.urls?.regular || item.url,
-        thumbnail: item.image?.thumbnailLink || item.urls?.thumb || item.thumbnail,
+        thumbnail:
+          item.image?.thumbnailLink || item.urls?.thumb || item.thumbnail,
         title: item.title || `${query} - Image ${i + 1}`,
         source,
       }));
@@ -177,9 +197,9 @@ const withTimeout = (promise: Promise<Response>, ms = 8000) =>
       // --- GOOGLE IMAGE SEARCH (Primary) ---
       if (googleKey && googleCx) {
         const googleUrl = `https://www.googleapis.com/customsearch/v1?q=${encodeURIComponent(
-          query
+          query,
         )}&searchType=image&num=${count}&key=${googleKey}&cx=${googleCx}`;
-        const res = await withTimeout(fetch(googleUrl));
+        const res = (await withTimeout(fetch(googleUrl))) as Response;
         if (res.ok) {
           const data = await res.json();
           if (data.items?.length) {
@@ -195,9 +215,9 @@ const withTimeout = (promise: Promise<Response>, ms = 8000) =>
       // --- UNSPLASH FALLBACK ---
       if (unsplashKey) {
         const unsplashUrl = `https://api.unsplash.com/search/photos?query=${encodeURIComponent(
-          query
+          query,
         )}&per_page=${count}&client_id=${unsplashKey}`;
-        const res = await withTimeout(fetch(unsplashUrl));
+        const res = (await withTimeout(fetch(unsplashUrl))) as Response;
         if (res.ok) {
           const data = await res.json();
           if (data.results?.length) {
@@ -231,24 +251,22 @@ const withTimeout = (promise: Promise<Response>, ms = 8000) =>
   },
 });
 
-
 /**
  * Calculator Tool
- * Performs mathematical calculations
- */export const calculatorTool = tool({
+ */
+export const calculatorTool = tool({
   description:
     'Perform mathematical calculations from basic arithmetic to advanced Class-12 level and higher, including trigonometry, logarithms, algebra, and calculus expressions.',
   parameters: z.object({
     expression: z
       .string()
       .describe(
-        'Mathematical expression (e.g., "2 + 2", "sqrt(16)", "sin(45 deg)", "log(100,10)", "integrate(x^2, x)")'
+        'Mathematical expression (e.g., "2 + 2", "sqrt(16)", "sin(45 deg)", "log(100,10)", "integrate(x^2, x)")',
       ),
   }),
   execute: async ({ expression }) => {
     console.log(`[Calculator] Expression: "${expression}"`);
     try {
-      // Evaluate expression safely using math.js
       const result = math.evaluate(expression);
 
       return {
@@ -268,13 +286,3 @@ const withTimeout = (promise: Promise<Response>, ms = 8000) =>
     }
   },
 });
-
-/**
- * Export all tools as a single object
- */
-export const tools = {
-  webSearch: webSearchTool,
-  weather: weatherTool,
-  imageSearch: imageSearchTool,
-  calculator: calculatorTool,
-};
