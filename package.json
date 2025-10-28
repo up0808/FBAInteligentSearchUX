@@ -9,7 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "math js": "^15.0.0",
+    "@google/genai": "1.27.0",
+    "@ai-sdk/google": "^2.0.24",
+    "mathjs": "^15.0.0",
     "ai": "^5.0.81",
     "@langchain/langgraph": "^0.2.24",
     "@langchain/langgraph-checkpoint": "^0.0.14",
