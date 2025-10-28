@@ -16,40 +16,7 @@ const withTimeout = (promise: Promise<Response>, ms = 8000) =>
   ]);
 
 /**
- * Calculator Tool
- */
-export const calculatorTool = tool({
-  description:
-    'Perform mathematical calculations from basic arithmetic to advanced Class-12 level and higher, including trigonometry, logarithms, algebra, and calculus expressions.',
-  parameters: z.object({
-    expression: z
-      .string()
-      .describe(
-        'Mathematical expression (e.g., "2 + 2", "sqrt(16)", "sin(45 deg)", "log(100,10)", "integrate(x^2, x)")',
-      ),
-  }),
-  execute: async ({ expression }) => {
-    console.log(`[Calculator] Expression: "${expression}"`);
-    try {
-      const result = math.evaluate(expression);
-
-      return {
-        expression,
-        result,
-        success: true,
-        timestamp: new Date().toISOString(),
-      };
-    } catch (error: any) {
-      console.error('Calculation error:', error.message);
-      return {
-        expression,
-        error: error.message || 'Invalid or unsupported mathematical expression',
-        success: false,
-        timestamp: new Date().toISOString(),
-      };
-    }
-  },
-}); Google Custom Web Search Tool
+ * Google Custom Web Search Tool
  */
 export const webSearchTool = tool({
   description:
@@ -285,4 +252,37 @@ export const imageSearchTool = tool({
 });
 
 /**
- *
+ * Calculator Tool
+ */
+export const calculatorTool = tool({
+  description:
+    'Perform mathematical calculations from basic arithmetic to advanced Class-12 level and higher, including trigonometry, logarithms, algebra, and calculus expressions.',
+  parameters: z.object({
+    expression: z
+      .string()
+      .describe(
+        'Mathematical expression (e.g., "2 + 2", "sqrt(16)", "sin(45 deg)", "log(100,10)", "integrate(x^2, x)")',
+      ),
+  }),
+  execute: async ({ expression }) => {
+    console.log(`[Calculator] Expression: "${expression}"`);
+    try {
+      const result = math.evaluate(expression);
+
+      return {
+        expression,
+        result,
+        success: true,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error: any) {
+      console.error('Calculation error:', error.message);
+      return {
+        expression,
+        error: error.message || 'Invalid or unsupported mathematical expression',
+        success: false,
+        timestamp: new Date().toISOString(),
+      };
+    }
+  },
+});
