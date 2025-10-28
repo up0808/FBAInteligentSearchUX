@@ -1,6 +1,6 @@
 'use client';
 
-import { useUIState, useActions } from 'ai/rsc';
+import { useUIState, useActions } from 'ai/react';
 import { AI } from './actions';
 import { useState, useRef, useEffect } from 'react';
 import { User, Bot, Loader2, Send } from 'lucide-react';
