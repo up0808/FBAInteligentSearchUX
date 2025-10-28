@@ -1,20 +1,9 @@
 import { NextRequest } from 'next/server';
-import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
-import { GoogleCustomSearch } from '@langchain/community/tools/google_custom_search';
-import { StateGraph, Annotation, messagesStateReducer } from '@langchain/langgraph';
-import { MemorySaver } from '@langchain/langgraph-checkpoint';
-import { HumanMessage, AIMessage, BaseMessage, ToolMessage } from '@langchain/core/messages';
-import { v4 as uuidv4 } from 'uuid';
+import { google } from '@ai-sdk/google';
+import { streamText, tool } from 'ai';
+import { z } from 'zod';
 
 // --- Type Definitions ---
-
-const GraphState = Annotation.Root({
-  messages: Annotation<BaseMessage[]>({
-    reducer: messagesStateReducer,
-  }),
-});
-
-type GraphStateType = typeof GraphState.State;
 
 interface SSEEvent {
   type: 'checkpoint' | 'content' | 'search_start' | 'search_results' | 'end' | 'error';
@@ -23,6 +12,11 @@ interface SSEEvent {
   query?: string;
   urls?: string[];
   error?: string;
+}
+
+interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
 }
 
 // --- Environment Validation ---
@@ -43,11 +37,11 @@ function validateEnvironment() {
     throw new Error(`Missing required environment variables: ${missingVars.join(', ')}`);
   }
 
-  return { 
-    genAiApiKey: genAiApiKey!, 
-    googleApiKey: googleApiKey!, 
-    googleCseId: googleCseId!, 
-    adminApiKey: adminApiKey! 
+  return {
+    genAiApiKey: genAiApiKey!,
+    googleApiKey: googleApiKey!,
+    googleCseId: googleCseId!,
+    adminApiKey: adminApiKey!
   };
 }
 
@@ -59,113 +53,100 @@ function verifyAuthentication(request: NextRequest, adminApiKey: string): boolea
   return authHeader.substring(7) === adminApiKey;
 }
 
-// --- LangGraph Setup ---
+// --- Google Custom Search Tool ---
 
-const memory = new MemorySaver();
+function createGoogleSearchTool(apiKey: string, cseId: string) {
+  return tool({
+    description: 'Search the web using Google Custom Search API for real-time and recent information.',
+    inputSchema: z.object({
+      query: z.string().describe('The search query'),
+    }),
+    execute: async ({ query }) => {
+      const apiUrl = `https://www.googleapis.com/customsearch/v1?q=${encodeURIComponent(query)}&key=${apiKey}&cx=${cseId}&num=5`;
 
-function createGraph(envVars: ReturnType<typeof validateEnvironment>) {
-  const llm = new ChatGoogleGenerativeAI({
-    apiKey: envVars.genAiApiKey,
-    modelName: 'gemini-2.5-flash', 
-    temperature: 0.7,
-    maxOutputTokens: 2048,
-  });
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
 
-  const searchTool = new GoogleCustomSearch({
-    apiKey: envVars.googleApiKey,
-    googleCSEId: envVars.googleCseId,
-  });
+        const response = await fetch(apiUrl, {
+          signal: controller.signal,
+        });
 
-  const llmWithTools = llm.bindTools([searchTool]);
+        clearTimeout(timeoutId);
 
-  // Model node: Invokes the LLM to either generate text or call a tool
-  async function modelNode(state: GraphStateType): Promise<Partial<GraphStateType>> {
-    const response = await llmWithTools.invoke(state.messages);
-    return { messages: [response] };
-  }
-
-  // Tool node: Executes the Google search tool
-  async function toolNode(state: GraphStateType): Promise<Partial<GraphStateType>> {
-    const lastMessage = state.messages[state.messages.length - 1];
-
-    if (!(lastMessage instanceof AIMessage) || !lastMessage.tool_calls?.length) {
-      return { messages: [] };
-    }
-
-    const toolMessages: ToolMessage[] = [];
-
-    for (const toolCall of lastMessage.tool_calls) {
-      if (toolCall.name === 'google_custom_search') {
-        const query = toolCall.args.query || toolCall.args.input || '';
-        
-        try {
-          // Invoke the tool
-          const searchResult = await searchTool.invoke(query);
-
-          toolMessages.push(
-            new ToolMessage({
-              content: searchResult, // JSON string of results
-              tool_call_id: toolCall.id || '',
-              name: toolCall.name,
-            })
-          );
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : 'Tool execution failed';
-          toolMessages.push(
-            new ToolMessage({
-              content: JSON.stringify({ error: errorMessage }),
-              tool_call_id: toolCall.id || '',
-              name: toolCall.name,
-            })
-          );
+        if (!response.ok) {
+          throw new Error(`Google API Error: ${response.status}`);
         }
+
+        const data = await response.json();
+        const items = data.items || [];
+
+        return {
+          query,
+          results: items.map((item: any) => ({
+            title: item.title,
+            url: item.link,
+            snippet: item.snippet || '',
+          })),
+          timestamp: new Date().toISOString(),
+        };
+      } catch (error: any) {
+        console.error('[Search Error]', error.message);
+        return {
+          query,
+          results: [],
+          error: error.message,
+          timestamp: new Date().toISOString(),
+        };
       }
-    }
-
-    return { messages: toolMessages };
-  }
-
-  // Router: Determines next step (Tool or End)
-  function toolsRouter(state: GraphStateType): 'tool_node' | '__end__' {
-    const lastMessage = state.messages[state.messages.length - 1];
-    if (lastMessage instanceof AIMessage && lastMessage.tool_calls?.length) {
-      return 'tool_node';
-    }
-    return '__end__';
-  }
-
-  const workflow = new StateGraph(GraphState)
-    .addNode('model', modelNode)
-    .addNode('tool_node', toolNode)
-    .addEdge('__start__', 'model')
-    .addConditionalEdges('model', toolsRouter)
-    .addEdge('tool_node', 'model'); // Loop back to the model after tool execution
-
-  return workflow.compile({ checkpointer: memory });
+    },
+  });
 }
 
+// --- In-Memory Chat History (Replace with Redis/DB in production) ---
 
-// --- SSE Streaming with FIXED Event Ordering ---
+const conversationStore = new Map<string, ChatMessage[]>();
+
+function getConversationHistory(threadId: string): ChatMessage[] {
+  return conversationStore.get(threadId) || [];
+}
+
+function addToConversationHistory(threadId: string, message: ChatMessage) {
+  const history = getConversationHistory(threadId);
+  history.push(message);
+  conversationStore.set(threadId, history);
+  
+  // Limit history to last 50 messages to prevent memory issues
+  if (history.length > 50) {
+    conversationStore.set(threadId, history.slice(-50));
+  }
+}
+
+function clearConversationHistory(threadId: string) {
+  conversationStore.delete(threadId);
+}
+
+// --- SSE Streaming Helper ---
 
 function formatSSE(event: SSEEvent): string {
-  // SSE messages must end with \n\n
   return `data: ${JSON.stringify(event)}\n\n`;
 }
 
-function createSSEStream(
-  graph: ReturnType<typeof createGraph>,
+// --- Main Stream Function ---
+
+async function createAIStream(
   message: string,
-  checkpointId: string | undefined
-): ReadableStream<Uint8Array> {
+  threadId: string,
+  envVars: ReturnType<typeof validateEnvironment>
+): Promise<ReadableStream<Uint8Array>> {
   const encoder = new TextEncoder();
 
   return new ReadableStream({
     async start(controller) {
       try {
-        const threadId = checkpointId || uuidv4();
-        const isNewConversation = !checkpointId;
+        const isNewConversation = !conversationStore.has(threadId);
 
-        // 1. Send checkpoint ID (Only if new conversation)
+        // 1. Send checkpoint ID for new conversations
         if (isNewConversation) {
           controller.enqueue(
             encoder.encode(
@@ -177,122 +158,140 @@ function createSSEStream(
           );
         }
 
-        const config = { configurable: { thread_id: threadId } };
-        const input = { messages: [new HumanMessage(message)] };
+        // 2. Get conversation history
+        const history = getConversationHistory(threadId);
 
-        const stream = await graph.streamEvents(input, {
-          ...config,
-          version: 'v2',
+        // 3. Create the Google search tool
+        const googleSearchTool = createGoogleSearchTool(
+          envVars.googleApiKey,
+          envVars.googleCseId
+        );
+
+        // 4. Configure the model
+        const model = google('gemini-2.0-flash-exp', {
+          apiKey: envVars.genAiApiKey,
         });
 
-        // --- RESILIENT STREAM STATE TRACKING (SIMPLIFIED) ---
-        // New state flag: True if the model has requested a tool and we are now 
-        // blocking content stream until the tool results are back.
-        let isAwaitingToolResult = false;
-        let finalAnswerStarted = false; // Flag to ensure final streaming is re-enabled
+        // 5. State tracking for tool execution
         let searchQuery = '';
         const searchUrls: string[] = [];
-        // ---
+        let isProcessingToolCall = false;
+        let fullResponse = '';
 
-        for await (const event of stream) {
-          const eventType = event.event;
-          const nodeName = event.name; 
+        // 6. Stream text with multi-step tool calling
+        const result = streamText({
+          model,
+          system: `You are a helpful AI assistant with access to web search capabilities.
 
-          // --- STEP 1: Detect Tool Call Request (Trigger BLOCK) ---
-          if (eventType === 'on_chat_model_end' && nodeName === 'model') {
-            const output = event.data?.output as AIMessage | undefined;
-            
-            // Check if the output of this model run was a tool call (length > 0)
-            if (output?.tool_calls && output.tool_calls.length > 0) {
-              
-              // This is the first model run and it's calling a tool.
-              isAwaitingToolResult = true; 
+Guidelines:
+- Use the google_custom_search tool when you need current information, recent events, or factual data that may have changed
+- Always cite your sources when using search results
+- Be concise and accurate in your responses
+- If search results are insufficient, acknowledge the limitation`,
+          messages: [
+            ...history.map(msg => ({
+              role: msg.role,
+              content: msg.content,
+            })),
+            {
+              role: 'user',
+              content: message,
+            },
+          ],
+          tools: {
+            google_custom_search: googleSearchTool,
+          },
+          maxSteps: 5, // Allow up to 5 steps for multi-tool usage
+          temperature: 0.7,
+          maxTokens: 2048,
 
-              const searchToolCall = output.tool_calls.find(
-                (tc: { name: string }) => tc.name === 'google_custom_search'
-              );
+          // Handle tool execution lifecycle
+          onStepFinish: async ({ toolCalls, toolResults }) => {
+            // Handle tool calls (search_start event)
+            if (toolCalls && toolCalls.length > 0) {
+              for (const toolCall of toolCalls) {
+                if (toolCall.toolName === 'google_custom_search') {
+                  searchQuery = (toolCall.args as any).query || '';
 
-              if (searchToolCall) { 
-                searchQuery = searchToolCall.args?.query || searchToolCall.args?.input || '';
-                
-                // Immediately emit search_start event before the tool runs
-                if (searchQuery) {
-                  controller.enqueue(
-                    encoder.encode(
-                      formatSSE({
-                        type: 'search_start',
-                        query: searchQuery,
-                      })
-                    )
-                  );
-                }
-              }
-            }
-          }
-
-          // --- STEP 2: Process Tool Execution End (Release BLOCK) ---
-          // This marks the transition from tool execution back to the model (for the final answer)
-          if (eventType === 'on_tool_end' && nodeName === 'tool_node' && isAwaitingToolResult) {
-            
-            // Tool has finished running, re-enable content streaming for the final model run
-            isAwaitingToolResult = false; 
-            finalAnswerStarted = true; // Confirms we are now in the final answer phase
-
-            // Extract search results (links) from the tool output
-            const output = event.data?.output;
-            if (typeof output === 'string') {
-              try {
-                const results = JSON.parse(output);
-                
-                if (Array.isArray(results)) {
-                  for (const result of results) {
-                    if (result.link && typeof result.link === 'string') {
-                      searchUrls.push(result.link);
-                    }
+                  if (searchQuery) {
+                    controller.enqueue(
+                      encoder.encode(
+                        formatSSE({
+                          type: 'search_start',
+                          query: searchQuery,
+                        })
+                      )
+                    );
+                    isProcessingToolCall = true;
                   }
                 }
+              }
+            }
 
-                // Immediately emit search_results event 
-                if (searchUrls.length > 0) {
-                  controller.enqueue(
-                    encoder.encode(
-                      formatSSE({
-                        type: 'search_results',
-                        urls: searchUrls,
-                      })
-                    )
-                  );
+            // Handle tool results (search_results event)
+            if (toolResults && toolResults.length > 0) {
+              for (const toolResult of toolResults) {
+                if (toolResult.toolName === 'google_custom_search') {
+                  const resultData = toolResult.result as any;
+
+                  // Extract URLs from results
+                  if (resultData?.results && Array.isArray(resultData.results)) {
+                    for (const result of resultData.results) {
+                      if (result.url) {
+                        searchUrls.push(result.url);
+                      }
+                    }
+                  }
+
+                  // Send search_results event
+                  if (searchUrls.length > 0) {
+                    controller.enqueue(
+                      encoder.encode(
+                        formatSSE({
+                          type: 'search_results',
+                          urls: searchUrls,
+                        })
+                      )
+                    );
+                  }
+
+                  isProcessingToolCall = false;
                 }
-              } catch (parseError) {
-                console.error('Failed to parse search results in on_tool_end:', parseError);
               }
             }
-          }
-          
-          // --- STEP 3: Stream Content with Fixed Logic ---
-          if (eventType === 'on_chat_model_stream') {
-            const chunk = event.data?.chunk;
-            
-            if (typeof chunk?.content === 'string' && chunk.content) {
-              
-              // CRITICAL FIX: Only block content if we are actively waiting for the tool results.
-              // This ensures simple queries (where isAwaitingToolResult is false) stream fine.
-              if (!isAwaitingToolResult) {
-                controller.enqueue(
-                  encoder.encode(
-                    formatSSE({
-                      type: 'content',
-                      content: chunk.content,
-                    })
-                  )
-                );
-              }
-              // If isAwaitingToolResult is true, we discard the LLM's tool monologue.
-            }
+          },
+        });
+
+        // 7. Stream the text content
+        for await (const chunk of result.textStream) {
+          // Only stream content if we're not processing a tool call
+          if (!isProcessingToolCall && chunk) {
+            fullResponse += chunk;
+            controller.enqueue(
+              encoder.encode(
+                formatSSE({
+                  type: 'content',
+                  content: chunk,
+                })
+              )
+            );
           }
         }
 
-        // Send end event
+        // 8. Wait for completion
+        await result;
+
+        // 9. Save to conversation history
+        addToConversationHistory(threadId, {
+          role: 'user',
+          content: message,
+        });
+        addToConversationHistory(threadId, {
+          role: 'assistant',
+          content: fullResponse,
+        });
+
+        // 10. Send end event
         controller.enqueue(encoder.encode(formatSSE({ type: 'end' })));
         controller.close();
       } catch (error) {
@@ -313,7 +312,7 @@ function createSSEStream(
   });
 }
 
-// --- API Route Handler ---
+// --- GET Handler (URL Parameters) ---
 
 export async function GET(request: NextRequest) {
   try {
@@ -328,7 +327,17 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const message = searchParams.get('message');
-    const checkpointId = searchParams.get('checkpoint_id') || undefined;
+    const checkpointId = searchParams.get('checkpoint_id') || crypto.randomUUID();
+    const action = searchParams.get('action'); // Optional: 'clear' to reset conversation
+
+    // Handle clear conversation action
+    if (action === 'clear' && checkpointId) {
+      clearConversationHistory(checkpointId);
+      return new Response(
+        JSON.stringify({ success: true, message: 'Conversation cleared' }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
 
     if (!message || message.trim() === '') {
       return new Response(
@@ -337,16 +346,14 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const graph = createGraph(envVars);
-    const stream = createSSEStream(graph, message, checkpointId);
+    const stream = await createAIStream(message, checkpointId, envVars);
 
-    // Return the stream with production-ready SSE headers
     return new Response(stream, {
       headers: {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache, no-transform',
         'Connection': 'keep-alive',
-        'X-Accel-Buffering': 'no', 
+        'X-Accel-Buffering': 'no',
       },
     });
   } catch (error) {
@@ -360,13 +367,69 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Standard OPTIONS handler for CORS preflight requests
+// --- POST Handler (JSON Body) ---
+
+export async function POST(request: NextRequest) {
+  try {
+    const envVars = validateEnvironment();
+
+    if (!verifyAuthentication(request, envVars.adminApiKey)) {
+      return new Response(
+        JSON.stringify({ error: 'Missing or invalid authorization header. Use Bearer token.' }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const body = await request.json();
+    const { message, checkpoint_id, action } = body;
+
+    const checkpointId = checkpoint_id || crypto.randomUUID();
+
+    // Handle clear conversation action
+    if (action === 'clear' && checkpointId) {
+      clearConversationHistory(checkpointId);
+      return new Response(
+        JSON.stringify({ success: true, message: 'Conversation cleared' }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (!message || typeof message !== 'string' || message.trim() === '') {
+      return new Response(
+        JSON.stringify({ error: 'Message field is required and must be a non-empty string' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const stream = await createAIStream(message, checkpointId, envVars);
+
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      },
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
+    console.error('[API Error]', error);
+
+    return new Response(JSON.stringify({ error: errorMessage }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+}
+
+// --- OPTIONS Handler (CORS) ---
+
 export async function OPTIONS() {
   return new Response(null, {
     status: 200,
     headers: {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     },
   });
