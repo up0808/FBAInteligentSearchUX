@@ -3,7 +3,7 @@
  * 
  * Production-grade LangGraph Agentic Search API compatible with useChatStream hook
  * Uses path parameter for message to match existing client code
- */
+ *
 
 import { NextRequest } from 'next/server';
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
@@ -382,3 +382,5 @@ export async function OPTIONS() {
     },
   });
 }
+
+*/
