@@ -11,13 +11,14 @@ try {
       url: process.env.UPSTASH_REDIS_REST_URL,
       token: process.env.UPSTASH_REDIS_REST_TOKEN,
     });
+    console.log('✅ Redis client initialized successfully');
   } else {
     console.warn(
-      'Upstash Redis environment variables not set. Chat history will not be saved.',
+      '⚠️  Upstash Redis environment variables not set. Chat history will not be saved.',
     );
   }
 } catch (error) {
-  console.error('Failed to initialize Upstash Redis client:', error);
+  console.error('❌ Failed to initialize Upstash Redis client:', error);
 }
 
 export { redis };
