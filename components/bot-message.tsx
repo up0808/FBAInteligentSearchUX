@@ -4,17 +4,22 @@ import { Bot, Loader2, Image as ImageIcon, Search, Calculator, Cloud } from 'luc
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-type ToolInvocation = {
-  state: 'partial-call' | 'call' | 'result';
-  toolCallId: string;
-  toolName: string;
+type MessagePart = {
+  type: string;
+  text?: string;
+  toolCallId?: string;
+  toolName?: string;
   args?: any;
   result?: any;
+  [key: string]: any;
 };
 
 type BotMessageProps = {
-  content: string;
-  toolInvocations?: ToolInvocation[];
+  message: {
+    id: string;
+    role: string;
+    parts: MessagePart[];
+  };
 };
 
 // Helper to get a user-friendly name for the tool
@@ -34,25 +39,33 @@ function getToolInfo(toolName: string, args: any): { icon: React.ReactNode; text
   }
 }
 
-export default function BotMessage({ content, toolInvocations }: BotMessageProps) {
-  // Extract sources from web search results
+export default function BotMessage({ message }: BotMessageProps) {
+  // Extract text content and tool invocations from parts
+  const textContent: string[] = [];
+  const toolCalls: MessagePart[] = [];
+  const toolResults: MessagePart[] = [];
   const sources: string[] = [];
-  
-  if (toolInvocations) {
-    toolInvocations.forEach((invocation) => {
-      if (
-        invocation.toolName === 'webSearch' &&
-        invocation.state === 'result' &&
-        invocation.result?.results
-      ) {
-        invocation.result.results.forEach((result: any) => {
+
+  message.parts.forEach((part) => {
+    if (part.type === 'text' && part.text) {
+      textContent.push(part.text);
+    } else if (part.type.startsWith('tool-call')) {
+      toolCalls.push(part);
+    } else if (part.type.startsWith('tool-result')) {
+      toolResults.push(part);
+      
+      // Extract sources from web search results
+      if (part.toolName === 'webSearch' && part.result?.results) {
+        part.result.results.forEach((result: any) => {
           if (result.url) {
             sources.push(result.url);
           }
         });
       }
-    });
-  }
+    }
+  });
+
+  const fullText = textContent.join(' ');
 
   return (
     <div className="flex max-w-2xl items-start gap-3">
@@ -60,75 +73,73 @@ export default function BotMessage({ content, toolInvocations }: BotMessageProps
         <Bot className="h-5 w-5 text-gray-600" />
       </div>
       <div className="flex-1 space-y-2 overflow-hidden rounded-xl bg-gray-100 px-4 py-3">
-        {/* Tool invocations */}
-        {toolInvocations && toolInvocations.length > 0 && (
+        {/* Tool calls */}
+        {toolCalls.length > 0 && (
           <div className="space-y-2 mb-2">
-            {toolInvocations.map((invocation) => {
-              const { icon, text } = getToolInfo(invocation.toolName, invocation.args);
-              
-              // Show loading state for partial calls and calls
-              if (invocation.state === 'partial-call' || invocation.state === 'call') {
-                return (
-                  <div key={invocation.toolCallId} className="flex items-center gap-2 text-sm text-gray-600">
-                    {icon}
-                    <span>{text}</span>
-                  </div>
-                );
-              }
-
-              // Show results for completed tools
-              if (invocation.state === 'result') {
-                if (invocation.toolName === 'imageSearch' && invocation.result?.images) {
-                  return (
-                    <div key={invocation.toolCallId} className="grid grid-cols-2 gap-2 mt-2">
-                      {invocation.result.images.slice(0, 4).map((img: any, idx: number) => (
-                        <a
-                          key={idx}
-                          href={img.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="block"
-                        >
-                          <img
-                            src={img.thumbnail}
-                            alt={img.title}
-                            className="rounded-lg object-cover w-full h-32"
-                          />
-                        </a>
-                      ))}
-                    </div>
-                  );
-                }
-
-                if (invocation.toolName === 'calculator' && invocation.result?.result !== undefined) {
-                  return (
-                    <div key={invocation.toolCallId} className="text-sm">
-                      <p className="text-gray-600">Result: <span className="font-medium text-gray-800">{invocation.result.result}</span></p>
-                    </div>
-                  );
-                }
-
-                if (invocation.toolName === 'weather' && invocation.result?.location) {
-                  return (
-                    <div key={invocation.toolCallId} className="text-sm">
-                      <p className="font-medium">{invocation.result.location}</p>
-                      <p className="text-gray-600">
-                        {invocation.result.temperature}°{invocation.result.unit} • {invocation.result.condition}
-                      </p>
-                    </div>
-                  );
-                }
-              }
-
-              return null;
+            {toolCalls.map((call, index) => {
+              const { icon, text } = getToolInfo(call.toolName || 'unknown', call.args);
+              return (
+                <div key={index} className="flex items-center gap-2 text-sm text-gray-600">
+                  {icon}
+                  <span>{text}</span>
+                </div>
+              );
             })}
           </div>
         )}
 
-        {/* Main content */}
-        {content && (
+        {/* Tool results with special rendering */}
+        {toolResults.map((result, index) => {
+          if (result.toolName === 'imageSearch' && result.result?.images) {
+            return (
+              <div key={index} className="grid grid-cols-2 gap-2 mt-2">
+                {result.result.images.slice(0, 4).map((img: any, idx: number) => (
+                  <a
+                    key={idx}
+                    href={img.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block"
+                  >
+                    <img
+                      src={img.thumbnail}
+                      alt={img.title}
+                      className="rounded-lg object-cover w-full h-32"
+                    />
+                  </a>
+                ))}
+              </div>
+            );
+          }
+
+          if (result.toolName === 'calculator' && result.result?.result !== undefined) {
+            return (
+              <div key={index} className="text-sm">
+                <p className="text-gray-600">
+                  Result: <span className="font-medium text-gray-800">{result.result.result}</span>
+                </p>
+              </div>
+            );
+          }
+
+          if (result.toolName === 'weather' && result.result?.location) {
+            return (
+              <div key={index} className="text-sm">
+                <p className="font-medium">{result.result.location}</p>
+                <p className="text-gray-600">
+                  {result.result.temperature}°{result.result.unit} • {result.result.condition}
+                </p>
+              </div>
+            );
+          }
+
+          return null;
+        })}
+
+        {/* Main text content */}
+        {fullText && (
           <article className="prose prose-sm prose-p:leading-normal max-w-none">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{fullText}</ReactMarkdown>
           </article>
         )}
 
