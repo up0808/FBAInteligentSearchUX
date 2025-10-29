@@ -53,7 +53,7 @@ export default function BotMessage({ message }: BotMessageProps) {
       toolCalls.push(part);
     } else if (part.type.startsWith('tool-result')) {
       toolResults.push(part);
-      
+
       // Extract sources from web search results
       if (part.toolName === 'webSearch' && part.result?.results) {
         part.result.results.forEach((result: any) => {
