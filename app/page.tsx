@@ -1,23 +1,26 @@
 'use client';
 
 import { useChat } from '@ai-sdk/react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { User, Bot, Loader2, Send, AlertCircle } from 'lucide-react';
 import BotMessage from '@/components/bot-message';
+import { nanoid } from 'nanoid';
 
 export default function IntelligentSearchChat() {
+  const [chatId] = useState(() => nanoid());
+  const [input, setInput] = useState('');
+  
   const {
     messages,
-    input,
-    handleInputChange,
-    handleSubmit,
-    isLoading,
+    sendMessage,
+    status,
     error,
-    reload,
+    regenerate,
   } = useChat({
+    id: chatId,
     api: '/api/chat',
-    onError: (error) => {
-      console.error('Chat error:', error);
+    body: {
+      id: chatId,
     },
   });
 
@@ -28,21 +31,13 @@ export default function IntelligentSearchChat() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Load chat history on mount
-  useEffect(() => {
-    async function loadHistory() {
-      try {
-        const response = await fetch('/api/chat/history');
-        if (response.ok) {
-          const data = await response.json();
-          console.log('Loaded chat history:', data.messages?.length || 0, 'messages');
-        }
-      } catch (error) {
-        console.error('Failed to load chat history:', error);
-      }
-    }
-    loadHistory();
-  }, []);
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || status !== 'ready') return;
+
+    sendMessage({ text: input });
+    setInput('');
+  };
 
   return (
     <div className="flex flex-col h-screen max-w-4xl mx-auto bg-white shadow-xl">
@@ -57,7 +52,7 @@ export default function IntelligentSearchChat() {
       {/* Chat Area */}
       <div className="flex-1 p-4 overflow-y-auto space-y-4">
         {/* Initial Welcome Message */}
-        {messages.length === 0 && !isLoading && (
+        {messages.length === 0 && status === 'ready' && (
           <div className="text-center py-10 text-gray-500">
             <Bot className="w-12 h-12 mx-auto text-indigo-400" />
             <p className="mt-2 text-lg font-semibold">
@@ -80,22 +75,24 @@ export default function IntelligentSearchChat() {
           >
             {message.role === 'user' ? (
               <div className="flex items-start gap-3 p-3 bg-white rounded-lg shadow-sm max-w-2xl">
-                <p className="text-gray-800 text-sm font-medium whitespace-pre-wrap">
-                  {message.content}
-                </p>
+                <div className="text-gray-800 text-sm font-medium whitespace-pre-wrap">
+                  {message.parts.map((part, index) => {
+                    if (part.type === 'text') {
+                      return <span key={index}>{part.text}</span>;
+                    }
+                    return null;
+                  })}
+                </div>
                 <User className="w-6 h-6 text-gray-500 shrink-0" />
               </div>
             ) : (
-              <BotMessage
-                content={message.content}
-                toolInvocations={message.toolInvocations}
-              />
+              <BotMessage message={message} />
             )}
           </div>
         ))}
 
         {/* Loading Indicator */}
-        {isLoading && (
+        {(status === 'streaming' || status === 'processing') && (
           <div className="flex justify-start">
             <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg shadow-sm">
               <Loader2 className="w-6 h-6 text-indigo-500 shrink-0 animate-spin" />
@@ -116,7 +113,7 @@ export default function IntelligentSearchChat() {
                   An error occurred: {error.message}
                 </p>
                 <button
-                  onClick={() => reload()}
+                  onClick={() => regenerate()}
                   className="mt-2 text-sm text-red-600 hover:text-red-800 underline"
                 >
                   Try again
@@ -135,14 +132,14 @@ export default function IntelligentSearchChat() {
           <input
             type="text"
             value={input}
-            onChange={handleInputChange}
+            onChange={(e) => setInput(e.target.value)}
             placeholder="Send a message..."
             className="flex-1 p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition duration-150"
-            disabled={isLoading}
+            disabled={status !== 'ready'}
           />
           <button
             type="submit"
-            disabled={!input.trim() || isLoading}
+            disabled={!input.trim() || status !== 'ready'}
             className="p-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:bg-indigo-300 transition duration-150 shadow-md"
           >
             <Send className="w-6 h-6" />
