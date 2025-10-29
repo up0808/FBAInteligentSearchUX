@@ -9,7 +9,7 @@ import { nanoid } from 'nanoid';
 export default function IntelligentSearchChat() {
   const [chatId] = useState(() => nanoid());
   const [input, setInput] = useState('');
-  
+
   const {
     messages,
     sendMessage,
