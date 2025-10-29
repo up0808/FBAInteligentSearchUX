@@ -1,7 +1,6 @@
-import { streamText, convertToCoreMessages, type LanguageModelV1CallOptions } from 'ai';
+import { streamText, convertToCoreMessages } from 'ai';
 import { google } from '@ai-sdk/google';
 import { auth } from '@clerk/nextjs/server';
-import { z } from 'zod';
 import {
   calculatorTool,
   imageSearchTool,
@@ -13,7 +12,6 @@ import { redis } from '@/lib/database/redis';
 // Setup AI Model (Google Gemini)
 const aiModel = google('gemini-2.0-flash-exp');
 
-// Set max duration or other config if needed
 export const maxDuration = 30;
 
 interface Message {
@@ -23,31 +21,31 @@ interface Message {
 }
 
 // Save chat history to Redis
-async function saveChatHistory(userId: string, messages: Message[]) {
+async function saveChatHistory(userId: string, chatId: string, messages: any[]) {
   if (!redis) {
     console.warn('Redis client not available. Skipping chat history save.');
     return;
   }
-  const historyKey = `chat_history:${userId}`;
+  const historyKey = `chat:${userId}:${chatId}`;
   try {
     await redis.set(historyKey, JSON.stringify(messages));
-    await redis.expire(historyKey, 60 * 60 * 24); // 24 hours
+    await redis.expire(historyKey, 60 * 60 * 24 * 7); // 7 days
   } catch (error) {
     console.error('Error saving chat history to Redis:', error);
   }
 }
 
 // Load chat history from Redis
-async function loadChatHistory(userId: string): Promise<Message[]> {
+async function loadChatHistory(userId: string, chatId: string): Promise<any[]> {
   if (!redis) {
     console.warn('Redis client not available. Skipping chat history load.');
     return [];
   }
-  const historyKey = `chat_history:${userId}`;
+  const historyKey = `chat:${userId}:${chatId}`;
   try {
     const data = await redis.get(historyKey);
     if (data) {
-      return JSON.parse(data as string) as Message[];
+      return JSON.parse(data as string);
     }
     return [];
   } catch (error) {
@@ -59,48 +57,58 @@ async function loadChatHistory(userId: string): Promise<Message[]> {
 export async function POST(req: Request) {
   try {
     const { userId } = await auth();
-
+    
     if (!userId) {
       return new Response('Unauthorized', { status: 401 });
     }
 
-    const { messages } = await req.json();
+    const { messages, id: chatId } = await req.json();
 
-    if (!Array.isArray(messages)) {
-      return new Response('Bad Request: messages must be an array', { status: 400 });
+    // Load previous chat history if chatId provided
+    let allMessages = messages;
+    if (chatId) {
+      const history = await loadChatHistory(userId, chatId);
+      // Combine history with new message (last message is the new one)
+      if (history.length > 0) {
+        allMessages = [...history, messages[messages.length - 1]];
+      }
     }
 
-    // Load previous chat history
-    const history = await loadChatHistory(userId);
+    // Convert to core messages format
+    const coreMessages = convertToCoreMessages(allMessages);
 
-    // Combine history with new messages
-    const allMessages = [...history, ...messages];
-
-    // Prepare the call options
-    const callOptions: LanguageModelV1CallOptions = {
+    // Stream the response
+    const result = streamText({
       model: aiModel,
-      inputFormat: 'messages',
-      prompt: convertToCoreMessages(messages),
-      mode: {
-        type: 'regular',
-        tools: [
-          { name: 'webSearch', func: webSearchTool },
-          { name: 'imageSearch', func: imageSearchTool },
-          { name: 'weather', func: weatherTool },
-          { name: 'calculator', func: calculatorTool },
-        ],
-      },
-      // optional: set timeout or other config
-      // e.g., stopSequences, temperature, etc
+      messages: coreMessages,
       system: `You are a helpful FBA (Fulfillment by Amazon) assistant. You use the provided tools to answer user questions accurately.
-When you use the webSearch tool, present the results clearly and cite your sources.
+When you use the webSearchTool, present the results clearly and cite your sources.
 For calculations, use the calculator tool.
 For weather information, use the weather tool.
 For image searches, use the image search tool.`,
+      tools: {
+        webSearch: webSearchTool,
+        imageSearch: imageSearchTool,
+        weather: weatherTool,
+        calculator: calculatorTool,
+      },
       maxSteps: 5,
-    };
-
-    const result = streamText(callOptions);
+      onFinish: async ({ response }) => {
+        // Save updated chat history with the assistant's response
+        if (chatId) {
+          const updatedMessages = [
+            ...allMessages,
+            {
+              role: 'assistant',
+              content: response.messages[response.messages.length - 1].content,
+              id: crypto.randomUUID(),
+            },
+          ];
+          
+          await saveChatHistory(userId, chatId, updatedMessages);
+        }
+      },
+    });
 
     return result.toDataStreamResponse();
   } catch (error) {
