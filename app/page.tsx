@@ -1,6 +1,7 @@
 'use client';
 
 import { useChat } from '@ai-sdk/react';
+import { DefaultChatTransport } from 'ai';
 import { useEffect, useRef, useState } from 'react';
 import { User, Bot, Loader2, Send, AlertCircle } from 'lucide-react';
 import BotMessage from '@/components/bot-message';
@@ -18,14 +19,9 @@ export default function IntelligentSearchChat() {
     regenerate,
   } = useChat({
     id: chatId,
-    transport: {
+    transport: new DefaultChatTransport({
       api: '/api/chat',
-      credentials: 'same-origin',
-      headers: {},
-      body: {
-        id: chatId,
-      },
-    },
+    }),
   });
 
   const chatEndRef = useRef<HTMLDivElement>(null);
