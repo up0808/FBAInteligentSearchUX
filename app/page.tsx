@@ -92,7 +92,7 @@ export default function IntelligentSearchChat() {
         ))}
 
         {/* Loading Indicator */}
-        {(status === 'streaming' || status === 'processing') && (
+        {(status === 'submitted' || status === 'streaming') && (
           <div className="flex justify-start">
             <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg shadow-sm">
               <Loader2 className="w-6 h-6 text-indigo-500 shrink-0 animate-spin" />
