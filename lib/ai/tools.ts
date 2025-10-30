@@ -7,10 +7,10 @@ const math = create(all, {
   precision: 14,
 });
 
-const withTimeout = (promise: Promise<Response>, ms = 8000) =>
+const withTimeout = <T>(promise: Promise<T>, ms = 8000): Promise<T> =>
   Promise.race([
     promise,
-    new Promise<Response>((_, reject) =>
+    new Promise<T>((_, reject) =>
       setTimeout(() => reject(new Error('Request timeout')), ms),
     ),
   ]);
@@ -21,7 +21,7 @@ const withTimeout = (promise: Promise<Response>, ms = 8000) =>
 export const webSearchTool = tool({
   description:
     'Search the web using Google Custom Search API for real-time and recent information.',
-  parameters: z.object({
+  inputSchema: z.object({
     query: z.string().describe('The search query'),
     numResults: z
       .number()
@@ -88,7 +88,7 @@ export const webSearchTool = tool({
 export const weatherTool = tool({
   description:
     'Get current weather information for a specific city or location using Open-Meteo API.',
-  parameters: z.object({
+  inputSchema: z.object({
     location: z
       .string()
       .describe('City name or location (e.g., London, New York, Delhi)'),
@@ -169,7 +169,7 @@ export const weatherTool = tool({
 export const imageSearchTool = tool({
   description:
     'Search for images using Google Custom Search (Image Type) or fallback to Unsplash API.',
-  parameters: z.object({
+  inputSchema: z.object({
     query: z.string().describe('The image search query'),
     count: z
       .number()
@@ -257,7 +257,7 @@ export const imageSearchTool = tool({
 export const calculatorTool = tool({
   description:
     'Perform mathematical calculations from basic arithmetic to advanced Class-12 level and higher, including trigonometry, logarithms, algebra, and calculus expressions.',
-  parameters: z.object({
+  inputSchema: z.object({
     expression: z
       .string()
       .describe(
