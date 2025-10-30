@@ -1,4 +1,4 @@
-import { streamText, convertToCoreMessages } from 'ai';
+import { streamText, convertToModelMessages } from 'ai';
 import { google } from '@ai-sdk/google';
 import { auth } from '@clerk/nextjs/server';
 import {
@@ -57,7 +57,7 @@ async function loadChatHistory(userId: string, chatId: string): Promise<any[]> {
 export async function POST(req: Request) {
   try {
     const { userId } = await auth();
-    
+
     if (!userId) {
       return new Response('Unauthorized', { status: 401 });
     }
@@ -74,13 +74,13 @@ export async function POST(req: Request) {
       }
     }
 
-    // Convert to core messages format
-    const coreMessages = convertToCoreMessages(allMessages);
+    // Convert to model messages format
+    const modelMessages = convertToModelMessages(allMessages);
 
-    // Stream the response
+    // Stream the response - NO maxSteps in AI SDK v5!
     const result = streamText({
       model: aiModel,
-      messages: coreMessages,
+      messages: modelMessages,
       system: `You are a helpful FBA (Fulfillment by Amazon) assistant. You use the provided tools to answer user questions accurately.
 When you use the webSearchTool, present the results clearly and cite your sources.
 For calculations, use the calculator tool.
@@ -92,25 +92,17 @@ For image searches, use the image search tool.`,
         weather: weatherTool,
         calculator: calculatorTool,
       },
-      maxSteps: 5,
-      onFinish: async ({ response }) => {
-        // Save updated chat history with the assistant's response
+    });
+
+    // Use toUIMessageStreamResponse for AI SDK v5
+    return result.toUIMessageStreamResponse({
+      onFinish: async ({ messages: finalMessages }) => {
+        // Save updated chat history
         if (chatId) {
-          const updatedMessages = [
-            ...allMessages,
-            {
-              role: 'assistant',
-              content: response.messages[response.messages.length - 1].content,
-              id: crypto.randomUUID(),
-            },
-          ];
-          
-          await saveChatHistory(userId, chatId, updatedMessages);
+          await saveChatHistory(userId, chatId, finalMessages);
         }
       },
     });
-
-    return result.toDataStreamResponse();
   } catch (error) {
     console.error('Error in chat route:', error);
     return new Response('Internal Server Error', { status: 500 });
