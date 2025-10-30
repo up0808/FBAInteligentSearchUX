@@ -1,4 +1,4 @@
-import { streamText, convertToModelMessages } from 'ai';
+import { streamText } from 'ai';
 import { google } from '@ai-sdk/google';
 import { auth } from '@clerk/nextjs/server';
 import {
@@ -14,18 +14,13 @@ const aiModel = google('gemini-2.0-flash-exp');
 
 export const maxDuration = 30;
 
-interface Message {
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  id?: string;
-}
-
 // Save chat history to Redis
 async function saveChatHistory(userId: string, chatId: string, messages: any[]) {
   if (!redis) {
     console.warn('Redis client not available. Skipping chat history save.');
     return;
   }
+
   const historyKey = `chat:${userId}:${chatId}`;
   try {
     await redis.set(historyKey, JSON.stringify(messages));
@@ -41,6 +36,7 @@ async function loadChatHistory(userId: string, chatId: string): Promise<any[]> {
     console.warn('Redis client not available. Skipping chat history load.');
     return [];
   }
+
   const historyKey = `chat:${userId}:${chatId}`;
   try {
     const data = await redis.get(historyKey);
@@ -56,7 +52,9 @@ async function loadChatHistory(userId: string, chatId: string): Promise<any[]> {
 
 export async function POST(req: Request) {
   try {
-    const { userId } = await auth();
+    // Get authenticated user from Clerk
+    const authResult = await auth();
+    const userId = authResult.userId;
 
     if (!userId) {
       return new Response('Unauthorized', { status: 401 });
@@ -68,43 +66,63 @@ export async function POST(req: Request) {
     let allMessages = messages;
     if (chatId) {
       const history = await loadChatHistory(userId, chatId);
-      // Combine history with new message (last message is the new one)
       if (history.length > 0) {
-        allMessages = [...history, messages[messages.length - 1]];
+        // Merge history with new messages, avoiding duplicates
+        const messageIds = new Set(messages.map((m: any) => m.id));
+        const uniqueHistory = history.filter((m: any) => !messageIds.has(m.id));
+        allMessages = [...uniqueHistory, ...messages];
       }
     }
 
-    // Convert to model messages format
-    const modelMessages = convertToModelMessages(allMessages);
+    // System prompt for FBA context
+    const systemPrompt = `You are  FBA Intelligent Search (Created by FBA Dev Ishant Solutions Company Owned by Ishant Yadav) assistant. You help users with:
+- FBA Intelligent Search is Ai Powered search engines so you can answer any type of questions and realtime queries using tools and your brain.
 
-    // Stream the response - NO maxSteps in AI SDK v5!
+You have access to the following tools:
+- webSearch: Search the web for current information (use for recent data, trends, news)
+- imageSearch: Find relevant images (use for product visuals, charts, diagrams and images which user ask)
+- calculator: Perform mathematical calculations (use for metrics, ROI, profit margins and Can Solve Class Nursery to Class 10th Mathematics Problem)
+- weather: Get weather information (use when people ask you about whether conditions of current or any specific location)
+
+Always provide accurate, helpful, and actionable advice. When using tools, explain your findings clearly.`;
+
+    // Stream the response using AI SDK v5
     const result = streamText({
       model: aiModel,
-      messages: modelMessages,
-      system: `You are a helpful FBA (Fulfillment by Amazon) assistant. You use the provided tools to answer user questions accurately.
-When you use the webSearchTool, present the results clearly and cite your sources.
-For calculations, use the calculator tool.
-For weather information, use the weather tool.
-For image searches, use the image search tool.`,
+      system: systemPrompt,
+      messages: allMessages,
       tools: {
         webSearch: webSearchTool,
         imageSearch: imageSearchTool,
-        weather: weatherTool,
         calculator: calculatorTool,
+        weather: weatherTool,
       },
-    });
-
-    // Use toUIMessageStreamResponse for AI SDK v5
-    return result.toUIMessageStreamResponse({
-      onFinish: async ({ messages: finalMessages }) => {
-        // Save updated chat history
+      maxSteps: 5, // Allow up to 5 tool calls in a row
+      onFinish: async ({ response }) => {
+        // Save complete conversation to Redis
         if (chatId) {
-          await saveChatHistory(userId, chatId, finalMessages);
+          const updatedMessages = [...allMessages, response];
+          await saveChatHistory(userId, chatId, updatedMessages);
         }
       },
     });
-  } catch (error) {
-    console.error('Error in chat route:', error);
-    return new Response('Internal Server Error', { status: 500 });
+
+    // Return streaming response with proper headers for SSE
+    return result.toDataStreamResponse({
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    });
+  } catch (error: any) {
+    console.error('Chat API Error:', error);
+    return new Response(
+      JSON.stringify({ error: error.message || 'Internal server error' }),
+      {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
   }
 }
