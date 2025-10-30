@@ -18,9 +18,13 @@ export default function IntelligentSearchChat() {
     regenerate,
   } = useChat({
     id: chatId,
-    api: '/api/chat',
-    body: {
-      id: chatId,
+    transport: {
+      api: '/api/chat',
+      credentials: 'same-origin',
+      headers: {},
+      body: {
+        id: chatId,
+      },
     },
   });
 
