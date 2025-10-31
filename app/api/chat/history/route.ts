@@ -30,13 +30,13 @@ async function loadChatHistory(userId: string): Promise<Message[]> {
 export async function GET() {
   try {
     const { userId } = await auth();
-    
+
     if (!userId) {
       return new NextResponse('Unauthorized', { status: 401 });
     }
 
     const history = await loadChatHistory(userId);
-    
+
     return NextResponse.json({ messages: history });
   } catch (error) {
     console.error('Error fetching chat history:', error);
