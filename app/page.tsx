@@ -38,10 +38,10 @@ return (
 
 {/* Header */}
 
-FBA Intelligent Search Chat
+//FBA Intelligent Search Chat
 
 
- Ask questions about FBA processes, data, and insights.
+ //Ask questions about FBA processes, data, and insights.
 
 
 
