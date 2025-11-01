@@ -1,7 +1,14 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { ClerkProvider } from "@clerk/nextjs";
+import {
+  ClerkProvider,
+  SignedIn,
+  SignedOut,
+  SignIn,
+  SignUp,
+  RedirectToSignIn,
+} from "@clerk/nextjs";
 import { ThemeProvider } from "@/lib/theme";
 
 const geistSans = Geist({
@@ -34,7 +41,15 @@ export default function RootLayout({
             defaultTheme="system"
             storageKey="fba-chatbot-theme"
           >
-            {children}
+            {/* Only render app pages if user is signed in */}
+            <SignedIn>
+              {children}
+            </SignedIn>
+
+            {/* If not signed in, redirect to Clerk Sign In */}
+            <SignedOut>
+              <RedirectToSignIn />
+            </SignedOut>
           </ThemeProvider>
         </body>
       </html>
