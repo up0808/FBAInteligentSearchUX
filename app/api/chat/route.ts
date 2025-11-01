@@ -56,7 +56,9 @@ async function loadChatHistory(userId: string, chatId: string): Promise<any[]> {
 
 export async function POST(req: Request) {
   try {
-    const { userId } = await auth();
+    // Properly call auth() and extract userId
+    const authObj = await auth();
+    const userId = authObj.userId;
 
     if (!userId) {
       return new Response('Unauthorized', { status: 401 });
